@@ -1,0 +1,119 @@
+// SPDX-License-Identifier: LGPL-3.0-only
+// Copyright (c) 2024 Shane Utt
+
+//! Origin matching logic and wildcard subdomain support for the CORS filter.
+
+use std::collections::HashSet;
+
+// -----------------------------------------------------------------------------
+// OriginPolicy
+// -----------------------------------------------------------------------------
+
+/// Pre-computed origin matching policy.
+///
+/// Built at config parse time so per-request matching
+/// avoids allocations.
+///
+/// # Example
+///
+/// ```ignore
+/// # // OriginPolicy is private, but we test via CorsFilter.
+/// use praxis_filter::CorsFilter;
+///
+/// let yaml: serde_yaml::Value = serde_yaml::from_str(
+///     r#"
+/// allow_origins: ["*"]
+/// "#,
+/// )
+/// .unwrap();
+/// let filter = CorsFilter::from_config(&yaml).unwrap();
+/// assert_eq!(filter.name(), "cors");
+/// ```
+pub(super) enum OriginPolicy {
+    /// `allow_origins: ["*"]`: reflect any non-null origin.
+    Any,
+
+    /// Explicit list plus optional wildcard subdomains.
+    List {
+        /// Exact origin strings (e.g. `https://example.com`).
+        exact: HashSet<String>,
+
+        /// Wildcard subdomain suffixes (e.g. `.example.com` from
+        /// `https://*.example.com`), stored as `(scheme, suffix)`.
+        wildcard_suffixes: Vec<(String, String)>,
+    },
+}
+
+impl OriginPolicy {
+    /// Check whether the response `Vary: Origin` header is needed.
+    ///
+    /// Static wildcard (`*`) without credentials produces a fixed
+    /// `Access-Control-Allow-Origin: *` so no `Vary` is needed.
+    pub(super) fn needs_vary(&self) -> bool {
+        !matches!(self, Self::Any)
+    }
+
+    /// Check whether `origin` is allowed by this policy.
+    pub(super) fn is_allowed(&self, origin: &str) -> bool {
+        match self {
+            Self::Any => true,
+            Self::List {
+                exact,
+                wildcard_suffixes,
+            } => exact.contains(origin) || match_wildcard_subdomain(origin, wildcard_suffixes),
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Origin Policy Builder
+// -----------------------------------------------------------------------------
+
+/// Build the [`OriginPolicy`] from the configured origins list.
+pub(super) fn build_origin_policy(origins: &[String]) -> OriginPolicy {
+    if origins.len() == 1 && origins.first().is_some_and(|o| o == "*") {
+        return OriginPolicy::Any;
+    }
+
+    let mut exact = HashSet::new();
+    let mut wildcard_suffixes = Vec::new();
+
+    for origin in origins {
+        if let Some((scheme, host)) = origin.split_once("://")
+            && host.starts_with("*.")
+        {
+            let suffix = host.get(1..).unwrap_or("").to_owned();
+            wildcard_suffixes.push((scheme.to_owned(), suffix));
+        } else {
+            exact.insert(origin.clone());
+        }
+    }
+
+    OriginPolicy::List {
+        exact,
+        wildcard_suffixes,
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Wildcard Subdomain Matching
+// -----------------------------------------------------------------------------
+
+/// Check if `origin` matches any wildcard subdomain entry.
+///
+/// Each entry is `(scheme, suffix)` where suffix is e.g.
+/// `.example.com`. Only single-level subdomains match:
+/// `https://app.example.com` matches but
+/// `https://a.b.example.com` does not.
+fn match_wildcard_subdomain(origin: &str, suffixes: &[(String, String)]) -> bool {
+    let Some((scheme, rest)) = origin.split_once("://") else {
+        return false;
+    };
+    suffixes.iter().any(|(s, suffix)| {
+        if scheme != s || !rest.ends_with(suffix.as_str()) || rest.len() <= suffix.len() {
+            return false;
+        }
+        let subdomain = &rest[..rest.len() - suffix.len()];
+        !subdomain.contains('.')
+    })
+}
