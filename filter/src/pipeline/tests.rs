@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 // Copyright (c) 2024 Shane Utt
 
 //! Tests for pipeline construction, body capabilities, execution, and ordering warnings.

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 // Copyright (c) 2024 Shane Utt
 
 //! Hop-by-hop header stripping on upstream responses ([RFC 9110]).

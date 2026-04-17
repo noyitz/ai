@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 // Copyright (c) 2024 Shane Utt
 
 //! Integration tests for retry behavior (or lack thereof).

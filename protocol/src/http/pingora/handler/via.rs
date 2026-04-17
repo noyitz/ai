@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 // Copyright (c) 2024 Shane Utt
 
 //! Via header injection per [RFC 9110 Section 7.6.3].

@@ -83,7 +83,7 @@ FROM alpine:3.23
 
 LABEL org.opencontainers.image.source="https://github.com/praxis-proxy/praxis" \
     org.opencontainers.image.description="Praxis proxy server" \
-    org.opencontainers.image.licenses="LGPL-3.0-only"
+    org.opencontainers.image.licenses="MIT"
 
 RUN apk add --no-cache ca-certificates \
     && addgroup -S praxis \

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LGPL-3.0-only
+// SPDX-License-Identifier: MIT
 // Copyright (c) 2024 Shane Utt
 
 //! HTTP/2 conformance tests via [h2spec]. Runs all h2spec tests in strict mode.
