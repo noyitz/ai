@@ -4,7 +4,9 @@
 //! Integration tests for retry behavior (or lack thereof).
 
 use praxis_core::config::Config;
-use praxis_test_utils::{free_port, http_get, http_send, parse_status, simple_proxy_yaml, start_backend, start_proxy};
+use praxis_test_utils::{
+    free_port, http_get, http_send, parse_status, simple_proxy_yaml, start_backend_with_shutdown, start_proxy,
+};
 
 // -----------------------------------------------------------------------------
 // Tests
@@ -16,9 +18,9 @@ fn no_retry_on_dead_backend_returns_502() {
     let proxy_port = free_port();
     let yaml = simple_proxy_yaml(proxy_port, dead_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, _body) = http_get(&addr, "/", None);
+    let (status, _body) = http_get(proxy.addr(), "/", None);
     assert_eq!(status, 502, "dead backend should return 502 without retry");
 }
 
@@ -28,10 +30,10 @@ fn no_retry_on_dead_backend_post_returns_502() {
     let proxy_port = free_port();
     let yaml = simple_proxy_yaml(proxy_port, dead_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         "POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4\r\nConnection: close\r\n\r\ntest",
     );
     let status = parse_status(&raw);
@@ -67,9 +69,9 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, _body) = http_get(&addr, "/", None);
+    let (status, _body) = http_get(proxy.addr(), "/", None);
     assert_eq!(
         status, 502,
         "all-dead cluster should return 502 without retrying other endpoints"
@@ -79,7 +81,8 @@ filter_chains:
 #[test]
 fn no_retry_mixed_endpoints_healthy_serves() {
     let dead_port = free_port();
-    let live_port = start_backend("live-backend");
+    let live_port_guard = start_backend_with_shutdown("live-backend");
+    let live_port = live_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -105,12 +108,12 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let mut saw_live = false;
     let mut saw_502 = false;
     for _ in 0..10 {
-        let (status, body) = http_get(&addr, "/", None);
+        let (status, body) = http_get(proxy.addr(), "/", None);
         match status {
             200 => {
                 assert_eq!(body, "live-backend", "healthy endpoint should serve response");
@@ -155,9 +158,9 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, _body) = http_get(&addr, "/", None);
+    let (status, _body) = http_get(proxy.addr(), "/", None);
     assert_eq!(
         status, 502,
         "pipeline-style config with dead backend should return 502 without retry"
@@ -170,10 +173,10 @@ fn no_retry_sequential_requests_to_dead_backend_all_fail() {
     let proxy_port = free_port();
     let yaml = simple_proxy_yaml(proxy_port, dead_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     for i in 0..3 {
-        let (status, _body) = http_get(&addr, "/", None);
+        let (status, _body) = http_get(proxy.addr(), "/", None);
         assert_eq!(
             status, 502,
             "request {i} to dead backend should return 502 (no retry recovery)"

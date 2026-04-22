@@ -5,7 +5,9 @@
 
 use praxis_core::config::Config;
 use praxis_filter::{FilterAction, FilterError, HttpFilter, HttpFilterContext};
-use praxis_test_utils::{free_port, http_get, http_send, registry_with, start_backend, start_proxy_with_registry};
+use praxis_test_utils::{
+    free_port, http_get, http_send, registry_with, start_backend_with_shutdown, start_proxy_with_registry,
+};
 
 // -----------------------------------------------------------------------------
 // Tests
@@ -13,7 +15,8 @@ use praxis_test_utils::{free_port, http_get, http_send, registry_with, start_bac
 
 #[test]
 fn response_filter_executes() {
-    let backend_port = start_backend("filtered response");
+    let backend_port_guard = start_backend_with_shutdown("filtered response");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -40,11 +43,11 @@ filter_chains:
 
     let config = Config::from_yaml(&yaml).unwrap();
     let registry = registry_with("test_response_header", || Box::new(ResponseHeaderFilter));
-    let addr = start_proxy_with_registry(&config, &registry);
+    let proxy = start_proxy_with_registry(&config, &registry);
 
     let host_header = "localhost";
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &format!("GET / HTTP/1.1\r\nHost: {host_header}\r\nConnection: close\r\n\r\n"),
     );
     let raw_lower = raw.to_lowercase();
@@ -53,14 +56,15 @@ filter_chains:
         "response should contain header set by on_response filter, got:\n{raw}"
     );
 
-    let (status, body) = http_get(&addr, "/", None);
+    let (status, body) = http_get(proxy.addr(), "/", None);
     assert_eq!(status, 200, "response filter should still return 200");
     assert_eq!(body, "filtered response", "response body should pass through filter");
 }
 
 #[test]
 fn access_log_filter_processes_request() {
-    let backend_port = start_backend("logged response");
+    let backend_port_guard = start_backend_with_shutdown("logged response");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -86,9 +90,9 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = praxis_test_utils::start_proxy(&config);
+    let proxy = praxis_test_utils::start_proxy(&config);
 
-    let (status, body) = http_get(&addr, "/api/test", None);
+    let (status, body) = http_get(proxy.addr(), "/api/test", None);
     assert_eq!(status, 200, "access_log filter should not change status");
     assert_eq!(body, "logged response", "access_log filter should not alter body");
 }

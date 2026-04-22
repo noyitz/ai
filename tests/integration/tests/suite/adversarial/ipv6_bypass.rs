@@ -6,7 +6,8 @@
 
 use praxis_core::config::Config;
 use praxis_test_utils::{
-    free_port, free_port_v6, http_get, http_get_v6, ipv6_available, start_backend, start_backend_v6, start_proxy,
+    free_port, free_port_v6, http_get, http_get_v6, ipv6_available, start_backend_v6, start_backend_with_shutdown,
+    start_proxy,
 };
 
 // -----------------------------------------------------------------------------
@@ -15,7 +16,8 @@ use praxis_test_utils::{
 
 #[test]
 fn ipv4_deny_blocks_loopback() {
-    let backend_port = start_backend("secret");
+    let backend_port_guard = start_backend_with_shutdown("secret");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -44,9 +46,9 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, _) = http_get(&addr, "/", None);
+    let (status, _) = http_get(proxy.addr(), "/", None);
     assert_eq!(status, 403, "127.0.0.1 should be denied by ACL");
 }
 
@@ -86,9 +88,9 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, _) = http_get_v6(&addr, "/");
+    let (status, _) = http_get_v6(proxy.addr(), "/");
     assert_eq!(
         status, 403,
         "IPv6 loopback ::1 should be denied when ::1/128 is in deny list"
@@ -133,8 +135,8 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, _) = http_get_v6(&addr, "/");
+    let (status, _) = http_get_v6(proxy.addr(), "/");
     assert_eq!(status, 403, "IPv6 loopback should not bypass IPv4-only allow list");
 }

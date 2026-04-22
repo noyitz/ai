@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use praxis_core::config::Config;
 use praxis_test_utils::{
     free_port, http_get, http_send, json_post, load_example_config, parse_body, parse_status, patch_yaml,
-    start_backend, start_header_echo_backend, start_proxy, wait_for_tcp,
+    start_backend_with_shutdown, start_header_echo_backend_with_shutdown, start_proxy, wait_for_tcp,
 };
 
 // -----------------------------------------------------------------------------
@@ -17,9 +17,12 @@ use praxis_test_utils::{
 
 #[test]
 fn ai_inference_body_based_routing_matches_model() {
-    let mistral_port = start_backend("mistral-response");
-    let granite_port = start_backend("granite-response");
-    let default_port = start_backend("default-response");
+    let mistral_port_guard = start_backend_with_shutdown("mistral-response");
+    let mistral_port = mistral_port_guard.port();
+    let granite_port_guard = start_backend_with_shutdown("granite-response");
+    let granite_port = granite_port_guard.port();
+    let default_port_guard = start_backend_with_shutdown("default-response");
+    let default_port = default_port_guard.port();
     let proxy_port = free_port();
 
     let config = load_example_config(
@@ -33,10 +36,10 @@ fn ai_inference_body_based_routing_matches_model() {
             ("10.0.3.1:8080", default_port),
         ]),
     );
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post(
             "/v1/chat/completions",
             r#"{"model":"mistral-7b-instruct","messages":[]}"#,
@@ -52,9 +55,12 @@ fn ai_inference_body_based_routing_matches_model() {
 
 #[test]
 fn ai_inference_body_based_routing_falls_through_to_default() {
-    let mistral_port = start_backend("mistral-response");
-    let granite_port = start_backend("granite-response");
-    let default_port = start_backend("default-response");
+    let mistral_port_guard = start_backend_with_shutdown("mistral-response");
+    let mistral_port = mistral_port_guard.port();
+    let granite_port_guard = start_backend_with_shutdown("granite-response");
+    let granite_port = granite_port_guard.port();
+    let default_port_guard = start_backend_with_shutdown("default-response");
+    let default_port = default_port_guard.port();
     let proxy_port = free_port();
 
     let config = load_example_config(
@@ -68,10 +74,10 @@ fn ai_inference_body_based_routing_falls_through_to_default() {
             ("10.0.3.1:8080", default_port),
         ]),
     );
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post("/v1/chat/completions", r#"{"model":"unknown-model","messages":[]}"#),
     );
     assert_eq!(parse_status(&raw), 200, "unknown model should return 200");
@@ -84,7 +90,8 @@ fn ai_inference_body_based_routing_falls_through_to_default() {
 
 #[test]
 fn multi_field_extraction_extracts_both_fields() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
 
     let config = load_example_config(
@@ -97,10 +104,10 @@ fn multi_field_extraction_extracts_both_fields() {
             ("10.0.3.1:8080", backend_port),
         ]),
     );
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post(
             "/v1/chat/completions",
             r#"{"model":"claude-sonnet-4-5","user_id":"u-42"}"#,
@@ -121,8 +128,10 @@ fn multi_field_extraction_extracts_both_fields() {
 
 #[test]
 fn multi_field_extraction_routes_by_model() {
-    let claude_port = start_backend("claude-backend");
-    let default_port = start_backend("default-backend");
+    let claude_port_guard = start_backend_with_shutdown("claude-backend");
+    let claude_port = claude_port_guard.port();
+    let default_port_guard = start_backend_with_shutdown("default-backend");
+    let default_port = default_port_guard.port();
     let proxy_port = free_port();
 
     let config = load_example_config(
@@ -135,10 +144,10 @@ fn multi_field_extraction_routes_by_model() {
             ("10.0.3.1:8080", default_port),
         ]),
     );
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post(
             "/v1/chat/completions",
             r#"{"model":"claude-sonnet-4-5","user_id":"u-42"}"#,
@@ -154,7 +163,8 @@ fn multi_field_extraction_routes_by_model() {
 
 #[test]
 fn conditional_field_extraction_fires_on_v1_path() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
 
     let config = load_example_config(
@@ -166,10 +176,10 @@ fn conditional_field_extraction_fires_on_v1_path() {
             ("10.0.3.1:8080", backend_port),
         ]),
     );
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post(
             "/v1/chat/completions",
             r#"{"model":"mistral-large-latest","messages":[]}"#,
@@ -185,7 +195,8 @@ fn conditional_field_extraction_fires_on_v1_path() {
 
 #[test]
 fn conditional_field_extraction_skips_on_non_v1_path() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
 
     let config = load_example_config(
@@ -197,10 +208,10 @@ fn conditional_field_extraction_skips_on_non_v1_path() {
             ("10.0.3.1:8080", backend_port),
         ]),
     );
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post("/healthz", r#"{"model":"mistral-large-latest","messages":[]}"#),
     );
     assert_eq!(parse_status(&raw), 200, "non-v1 path should return 200");
@@ -213,9 +224,12 @@ fn conditional_field_extraction_skips_on_non_v1_path() {
 
 #[test]
 fn field_extraction_access_control_routes_acme() {
-    let acme_port = start_backend("acme-backend");
-    let globex_port = start_backend("globex-backend");
-    let default_port = start_backend("default-backend");
+    let acme_port_guard = start_backend_with_shutdown("acme-backend");
+    let acme_port = acme_port_guard.port();
+    let globex_port_guard = start_backend_with_shutdown("globex-backend");
+    let globex_port = globex_port_guard.port();
+    let default_port_guard = start_backend_with_shutdown("default-backend");
+    let default_port = default_port_guard.port();
     let proxy_port = free_port();
 
     let config = load_example_config(
@@ -228,10 +242,10 @@ fn field_extraction_access_control_routes_acme() {
             ("10.0.3.1:8080", default_port),
         ]),
     );
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post("/api/data", r#"{"tenant_id":"acme","query":"SELECT *"}"#),
     );
     assert_eq!(parse_status(&raw), 200, "acme tenant should return 200");
@@ -244,9 +258,12 @@ fn field_extraction_access_control_routes_acme() {
 
 #[test]
 fn field_extraction_access_control_routes_globex() {
-    let acme_port = start_backend("acme-backend");
-    let globex_port = start_backend("globex-backend");
-    let default_port = start_backend("default-backend");
+    let acme_port_guard = start_backend_with_shutdown("acme-backend");
+    let acme_port = acme_port_guard.port();
+    let globex_port_guard = start_backend_with_shutdown("globex-backend");
+    let globex_port = globex_port_guard.port();
+    let default_port_guard = start_backend_with_shutdown("default-backend");
+    let default_port = default_port_guard.port();
     let proxy_port = free_port();
 
     let config = load_example_config(
@@ -259,10 +276,10 @@ fn field_extraction_access_control_routes_globex() {
             ("10.0.3.1:8080", default_port),
         ]),
     );
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post("/api/data", r#"{"tenant_id":"globex","query":"SELECT *"}"#),
     );
     assert_eq!(parse_status(&raw), 200, "globex tenant should return 200");
@@ -275,9 +292,12 @@ fn field_extraction_access_control_routes_globex() {
 
 #[test]
 fn field_extraction_access_control_unknown_tenant_to_default() {
-    let acme_port = start_backend("acme-backend");
-    let globex_port = start_backend("globex-backend");
-    let default_port = start_backend("default-backend");
+    let acme_port_guard = start_backend_with_shutdown("acme-backend");
+    let acme_port = acme_port_guard.port();
+    let globex_port_guard = start_backend_with_shutdown("globex-backend");
+    let globex_port = globex_port_guard.port();
+    let default_port_guard = start_backend_with_shutdown("default-backend");
+    let default_port = default_port_guard.port();
     let proxy_port = free_port();
 
     let config = load_example_config(
@@ -290,10 +310,10 @@ fn field_extraction_access_control_unknown_tenant_to_default() {
             ("10.0.3.1:8080", default_port),
         ]),
     );
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post("/api/data", r#"{"tenant_id":"unknown","query":"SELECT *"}"#),
     );
     assert_eq!(parse_status(&raw), 200, "unknown tenant should return 200");
@@ -306,7 +326,8 @@ fn field_extraction_access_control_unknown_tenant_to_default() {
 
 #[test]
 fn body_size_limit_allows_small_body() {
-    let backend_port = start_backend("ok");
+    let backend_port_guard = start_backend_with_shutdown("ok");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
 
     let config = load_example_config(
@@ -314,10 +335,10 @@ fn body_size_limit_allows_small_body() {
         proxy_port,
         HashMap::from([("127.0.0.1:3000", backend_port)]),
     );
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post("/v1/chat", r#"{"model":"claude-sonnet-4-5","prompt":"hello"}"#),
     );
     assert_eq!(parse_status(&raw), 200, "small body under 1024 limit should return 200");
@@ -325,7 +346,8 @@ fn body_size_limit_allows_small_body() {
 
 #[test]
 fn body_size_limit_rejects_oversized_body() {
-    let backend_port = start_backend("ok");
+    let backend_port_guard = start_backend_with_shutdown("ok");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
 
     let config = load_example_config(
@@ -333,17 +355,19 @@ fn body_size_limit_rejects_oversized_body() {
         proxy_port,
         HashMap::from([("127.0.0.1:3000", backend_port)]),
     );
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let large_body = format!(r#"{{"model":"claude-sonnet-4-5","prompt":"{}"}}"#, "x".repeat(2000));
-    let raw = http_send(&addr, &json_post("/v1/chat", &large_body));
+    let raw = http_send(proxy.addr(), &json_post("/v1/chat", &large_body));
     assert_eq!(parse_status(&raw), 413, "oversized body should be rejected with 413");
 }
 
 #[test]
 fn multi_listener_body_pipeline_passthrough() {
-    let default_port = start_backend("passthrough-ok");
-    let claude_port = start_backend("claude-response");
+    let default_port_guard = start_backend_with_shutdown("passthrough-ok");
+    let default_port = default_port_guard.port();
+    let claude_port_guard = start_backend_with_shutdown("claude-response");
+    let claude_port = claude_port_guard.port();
     let proxy_passthrough = free_port();
     let proxy_streambuf = free_port();
     let proxy_buffered = free_port();
@@ -358,7 +382,7 @@ fn multi_listener_body_pipeline_passthrough() {
         .replace("127.0.0.1:3001", &format!("127.0.0.1:{claude_port}"));
     let config = Config::from_yaml(&patched).unwrap();
 
-    let _addr = start_proxy(&config);
+    let _proxy = start_proxy(&config);
     let passthrough_addr = format!("127.0.0.1:{proxy_passthrough}");
     wait_for_tcp(&passthrough_addr);
 
@@ -372,8 +396,10 @@ fn multi_listener_body_pipeline_passthrough() {
 
 #[test]
 fn multi_listener_body_pipeline_stream_buffer_routes() {
-    let default_port = start_backend("default-response");
-    let claude_port = start_backend("claude-response");
+    let default_port_guard = start_backend_with_shutdown("default-response");
+    let default_port = default_port_guard.port();
+    let claude_port_guard = start_backend_with_shutdown("claude-response");
+    let claude_port = claude_port_guard.port();
     let proxy_streambuf = free_port();
     let proxy_buffered = free_port();
     let proxy_passthrough = free_port();
@@ -388,10 +414,10 @@ fn multi_listener_body_pipeline_stream_buffer_routes() {
         .replace("127.0.0.1:3001", &format!("127.0.0.1:{claude_port}"));
     let config = Config::from_yaml(&patched).unwrap();
 
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post("/v1/chat", r#"{"model":"claude-sonnet-4-5","user_id":"u-1"}"#),
     );
     assert_eq!(parse_status(&raw), 200, "stream-buffer listener should return 200");

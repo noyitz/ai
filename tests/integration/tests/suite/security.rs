@@ -5,7 +5,7 @@
 
 use praxis_core::config::Config;
 use praxis_test_utils::{
-    free_port, http_send, parse_body, parse_header, simple_proxy_yaml, start_header_echo_backend,
+    free_port, http_send, parse_body, parse_header, simple_proxy_yaml, start_header_echo_backend_with_shutdown,
     start_hop_by_hop_response_backend, start_proxy,
 };
 
@@ -15,11 +15,12 @@ use praxis_test_utils::{
 
 #[test]
 fn hop_by_hop_headers_stripped_before_upstream() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
     let yaml = simple_proxy_yaml(proxy_port, backend_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
     let request = format!(
         "GET / HTTP/1.1\r\n\
          Host: localhost\r\n\
@@ -31,7 +32,7 @@ fn hop_by_hop_headers_stripped_before_upstream() {
          Accept: text/html\r\n\
          \r\n"
     );
-    let raw = http_send(&addr, &request);
+    let raw = http_send(proxy.addr(), &request);
     let body = parse_body(&raw);
     let body_lower = body.to_lowercase();
 
@@ -54,11 +55,12 @@ fn hop_by_hop_headers_stripped_before_upstream() {
 
 #[test]
 fn hop_by_hop_preserves_all_end_to_end_headers() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
     let yaml = simple_proxy_yaml(proxy_port, backend_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
     let request = format!(
         "GET / HTTP/1.1\r\n\
          Host: example.com\r\n\
@@ -67,7 +69,7 @@ fn hop_by_hop_preserves_all_end_to_end_headers() {
          X-Request-ID: abc-def\r\n\
          \r\n"
     );
-    let raw = http_send(&addr, &request);
+    let raw = http_send(proxy.addr(), &request);
     let body = parse_body(&raw);
     let body_lower = body.to_lowercase();
     assert!(body_lower.contains("accept"), "Accept lost: {body}");
@@ -77,7 +79,8 @@ fn hop_by_hop_preserves_all_end_to_end_headers() {
 
 #[test]
 fn forwarded_headers_injected_upstream() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
     let yaml = format!(
         r#"
@@ -102,13 +105,13 @@ filter_chains:
 "#
     );
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
     let request = format!(
         "GET / HTTP/1.1\r\n\
          Host: example.com\r\n\
          \r\n"
     );
-    let raw = http_send(&addr, &request);
+    let raw = http_send(proxy.addr(), &request);
     let body = parse_body(&raw);
     let body_lower = body.to_lowercase();
     assert!(
@@ -127,7 +130,8 @@ filter_chains:
 
 #[test]
 fn forwarded_headers_untrusted_overwrites_spoofed_xff() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
     let yaml = format!(
         r#"
@@ -152,7 +156,7 @@ filter_chains:
 "#
     );
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let request = format!(
         "GET / HTTP/1.1\r\n\
@@ -160,7 +164,7 @@ filter_chains:
          X-Forwarded-For: 1.1.1.1\r\n\
          \r\n"
     );
-    let raw = http_send(&addr, &request);
+    let raw = http_send(proxy.addr(), &request);
     let body = parse_body(&raw);
 
     assert!(
@@ -180,14 +184,14 @@ fn hop_by_hop_headers_stripped_from_response() {
     let proxy_port = free_port();
     let yaml = simple_proxy_yaml(proxy_port, backend_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
     let request = format!(
         "GET / HTTP/1.1\r\n\
          Host: localhost\r\n\
          Connection: close\r\n\
          \r\n"
     );
-    let raw = http_send(&addr, &request);
+    let raw = http_send(proxy.addr(), &request);
 
     assert!(
         parse_header(&raw, "keep-alive").is_none(),
@@ -217,14 +221,14 @@ fn hop_by_hop_response_preserves_end_to_end_headers() {
     let proxy_port = free_port();
     let yaml = simple_proxy_yaml(proxy_port, backend_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
     let request = format!(
         "GET / HTTP/1.1\r\n\
          Host: localhost\r\n\
          Connection: close\r\n\
          \r\n"
     );
-    let raw = http_send(&addr, &request);
+    let raw = http_send(proxy.addr(), &request);
 
     assert!(
         parse_header(&raw, "x-safe-header").is_some(),

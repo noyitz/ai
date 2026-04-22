@@ -6,7 +6,7 @@
 use praxis_core::config::Config;
 use praxis_protocol::http::load_http_handler;
 use praxis_test_utils::{
-    build_pipeline, free_port, http_get, simple_proxy_yaml, start_backend, start_proxy, wait_for_tcp,
+    build_pipeline, free_port, http_get, simple_proxy_yaml, start_backend_with_shutdown, start_proxy, wait_for_tcp,
 };
 
 // -----------------------------------------------------------------------------
@@ -15,7 +15,8 @@ use praxis_test_utils::{
 
 #[test]
 fn health_endpoints() {
-    let backend_port = start_backend("ok");
+    let backend_port_guard = start_backend_with_shutdown("ok");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
     let admin_port = free_port();
 
@@ -75,7 +76,8 @@ filter_chains:
 
 #[test]
 fn runtime_config_parsed_from_yaml_and_proxies() {
-    let backend_port = start_backend("runtime ok");
+    let backend_port_guard = start_backend_with_shutdown("runtime ok");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -132,7 +134,8 @@ filter_chains:
 
 #[test]
 fn connection_timeout_config_parses() {
-    let backend_port = start_backend("ok");
+    let backend_port_guard = start_backend_with_shutdown("ok");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -161,16 +164,17 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, body) = http_get(&addr, "/", None);
+    let (status, body) = http_get(proxy.addr(), "/", None);
     assert_eq!(status, 200, "connection timeout config should proxy correctly");
     assert_eq!(body, "ok", "response body should match backend");
 }
 
 #[test]
 fn pipeline_style_config_proxies() {
-    let backend_port = start_backend("pipeline ok");
+    let backend_port_guard = start_backend_with_shutdown("pipeline ok");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -195,25 +199,26 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, body) = http_get(&addr, "/", None);
+    let (status, body) = http_get(proxy.addr(), "/", None);
     assert_eq!(status, 200, "pipeline-style config should return 200");
     assert_eq!(body, "pipeline ok", "pipeline-style config should forward response");
 }
 
 #[test]
 fn admin_address_none_still_proxies() {
-    let backend_port = start_backend("no admin");
+    let backend_port_guard = start_backend_with_shutdown("no admin");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
     let config = Config::from_yaml(&simple_proxy_yaml(proxy_port, backend_port)).unwrap();
     assert!(
         config.admin.address.is_none(),
         "admin address should be None when not configured"
     );
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, body) = http_get(&addr, "/", None);
+    let (status, body) = http_get(proxy.addr(), "/", None);
     assert_eq!(status, 200, "proxy without admin address should return 200");
     assert_eq!(body, "no admin", "proxy without admin should forward response");
 }

@@ -5,7 +5,8 @@
 
 use praxis_core::config::Config;
 use praxis_test_utils::{
-    free_port, http_send, json_post, parse_body, parse_status, start_backend, start_header_echo_backend, start_proxy,
+    free_port, http_send, json_post, parse_body, parse_status, start_backend_with_shutdown,
+    start_header_echo_backend_with_shutdown, start_proxy,
 };
 
 // -----------------------------------------------------------------------------
@@ -14,16 +15,22 @@ use praxis_test_utils::{
 
 #[test]
 fn stream_buffer_routes_by_extracted_action() {
-    let process_port = start_backend("process-backend");
-    let validate_port = start_backend("validate-backend");
-    let default_port = start_backend("default-backend");
+    let process_port_guard = start_backend_with_shutdown("process-backend");
+    let process_port = process_port_guard.port();
+    let validate_port_guard = start_backend_with_shutdown("validate-backend");
+    let validate_port = validate_port_guard.port();
+    let default_port_guard = start_backend_with_shutdown("default-backend");
+    let default_port = default_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = action_routing_yaml(proxy_port, process_port, validate_port, default_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let raw = http_send(&addr, &json_post("/tasks", r#"{"action":"process","payload":"data"}"#));
+    let raw = http_send(
+        proxy.addr(),
+        &json_post("/tasks", r#"{"action":"process","payload":"data"}"#),
+    );
     assert_eq!(parse_status(&raw), 200, "process action should return 200");
     assert_eq!(
         parse_body(&raw),
@@ -31,7 +38,10 @@ fn stream_buffer_routes_by_extracted_action() {
         "action=process should route to processor cluster"
     );
 
-    let raw = http_send(&addr, &json_post("/tasks", r#"{"action":"validate","payload":"data"}"#));
+    let raw = http_send(
+        proxy.addr(),
+        &json_post("/tasks", r#"{"action":"validate","payload":"data"}"#),
+    );
     assert_eq!(parse_status(&raw), 200, "validate action should return 200");
     assert_eq!(
         parse_body(&raw),
@@ -42,16 +52,22 @@ fn stream_buffer_routes_by_extracted_action() {
 
 #[test]
 fn stream_buffer_unknown_action_routes_to_default() {
-    let process_port = start_backend("process-backend");
-    let validate_port = start_backend("validate-backend");
-    let default_port = start_backend("default-backend");
+    let process_port_guard = start_backend_with_shutdown("process-backend");
+    let process_port = process_port_guard.port();
+    let validate_port_guard = start_backend_with_shutdown("validate-backend");
+    let validate_port = validate_port_guard.port();
+    let default_port_guard = start_backend_with_shutdown("default-backend");
+    let default_port = default_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = action_routing_yaml(proxy_port, process_port, validate_port, default_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let raw = http_send(&addr, &json_post("/tasks", r#"{"action":"unknown","payload":"data"}"#));
+    let raw = http_send(
+        proxy.addr(),
+        &json_post("/tasks", r#"{"action":"unknown","payload":"data"}"#),
+    );
     assert_eq!(parse_status(&raw), 200, "unknown action should return 200");
     assert_eq!(
         parse_body(&raw),
@@ -62,16 +78,19 @@ fn stream_buffer_unknown_action_routes_to_default() {
 
 #[test]
 fn stream_buffer_missing_action_routes_to_default() {
-    let process_port = start_backend("process-backend");
-    let validate_port = start_backend("validate-backend");
-    let default_port = start_backend("default-backend");
+    let process_port_guard = start_backend_with_shutdown("process-backend");
+    let process_port = process_port_guard.port();
+    let validate_port_guard = start_backend_with_shutdown("validate-backend");
+    let validate_port = validate_port_guard.port();
+    let default_port_guard = start_backend_with_shutdown("default-backend");
+    let default_port = default_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = action_routing_yaml(proxy_port, process_port, validate_port, default_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let raw = http_send(&addr, &json_post("/tasks", r#"{"payload":"data"}"#));
+    let raw = http_send(proxy.addr(), &json_post("/tasks", r#"{"payload":"data"}"#));
     assert_eq!(parse_status(&raw), 200, "missing action should return 200");
     assert_eq!(
         parse_body(&raw),
@@ -82,15 +101,16 @@ fn stream_buffer_missing_action_routes_to_default() {
 
 #[test]
 fn multi_field_extracts_both_fields() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
 
     let yaml = multi_field_yaml(proxy_port, backend_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post("/v1/chat", r#"{"model":"claude-sonnet-4-5","user_id":"u-42"}"#),
     );
     assert_eq!(parse_status(&raw), 200, "multi-field extraction should return 200");
@@ -108,14 +128,15 @@ fn multi_field_extracts_both_fields() {
 
 #[test]
 fn multi_field_missing_one_still_extracts_other() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
 
     let yaml = multi_field_yaml(proxy_port, backend_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let raw = http_send(&addr, &json_post("/v1/chat", r#"{"model":"claude-sonnet-4-5"}"#));
+    let raw = http_send(proxy.addr(), &json_post("/v1/chat", r#"{"model":"claude-sonnet-4-5"}"#));
     assert_eq!(parse_status(&raw), 200, "single-field present should return 200");
     let body = parse_body(&raw);
     let body_lower = body.to_lowercase();
@@ -131,16 +152,18 @@ fn multi_field_missing_one_still_extracts_other() {
 
 #[test]
 fn multi_field_routes_by_extracted_model() {
-    let claude_port = start_backend("claude-backend");
-    let default_port = start_backend("default-backend");
+    let claude_port_guard = start_backend_with_shutdown("claude-backend");
+    let claude_port = claude_port_guard.port();
+    let default_port_guard = start_backend_with_shutdown("default-backend");
+    let default_port = default_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = multi_field_routing_yaml(proxy_port, claude_port, default_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post("/v1/chat", r#"{"model":"claude-sonnet-4-5","user_id":"u-42"}"#),
     );
     assert_eq!(
@@ -154,7 +177,10 @@ fn multi_field_routes_by_extracted_model() {
         "model=claude-sonnet-4-5 should route to claude_sonnet cluster"
     );
 
-    let raw = http_send(&addr, &json_post("/v1/chat", r#"{"model":"unknown","user_id":"u-42"}"#));
+    let raw = http_send(
+        proxy.addr(),
+        &json_post("/v1/chat", r#"{"model":"unknown","user_id":"u-42"}"#),
+    );
     assert_eq!(parse_status(&raw), 200, "unknown model routing should return 200");
     assert_eq!(
         parse_body(&raw),
@@ -165,15 +191,16 @@ fn multi_field_routes_by_extracted_model() {
 
 #[test]
 fn conditional_extraction_fires_on_matching_path() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
 
     let yaml = conditional_yaml(proxy_port, backend_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post("/v1/chat/completions", r#"{"model":"claude-sonnet-4-5","prompt":"hi"}"#),
     );
     assert_eq!(parse_status(&raw), 200, "matching path extraction should return 200");
@@ -186,15 +213,16 @@ fn conditional_extraction_fires_on_matching_path() {
 
 #[test]
 fn conditional_extraction_skips_on_non_matching_path() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
 
     let yaml = conditional_yaml(proxy_port, backend_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post("/other/endpoint", r#"{"model":"claude-sonnet-4-5","prompt":"hi"}"#),
     );
     assert_eq!(parse_status(&raw), 200, "non-matching path should return 200");
@@ -207,15 +235,16 @@ fn conditional_extraction_skips_on_non_matching_path() {
 
 #[test]
 fn body_limit_allows_small_body_with_extraction() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
 
     let yaml = body_limit_extraction_yaml(proxy_port, backend_port, 4096);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post("/v1/chat", r#"{"model":"claude-sonnet-4-5","prompt":"hello"}"#),
     );
     assert_eq!(parse_status(&raw), 200, "small body under limit should return 200");
@@ -228,30 +257,32 @@ fn body_limit_allows_small_body_with_extraction() {
 
 #[test]
 fn body_limit_rejects_oversized_body() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
 
     let yaml = body_limit_extraction_yaml(proxy_port, backend_port, 32);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let large_body = format!(r#"{{"model":"claude-sonnet-4-5","prompt":"{}"}}"#, "x".repeat(100));
-    let raw = http_send(&addr, &json_post("/v1/chat", &large_body));
+    let raw = http_send(proxy.addr(), &json_post("/v1/chat", &large_body));
     assert_eq!(parse_status(&raw), 413, "oversized body should be rejected with 413");
 }
 
 #[test]
 fn body_limit_exact_boundary_succeeds() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
 
     let small_json = r#"{"model":"claude-sonnet-4-5"}"#;
     let limit = small_json.len();
     let yaml = body_limit_extraction_yaml(proxy_port, backend_port, limit);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let raw = http_send(&addr, &json_post("/v1/chat", small_json));
+    let raw = http_send(proxy.addr(), &json_post("/v1/chat", small_json));
     assert_eq!(
         parse_status(&raw),
         200,
@@ -266,17 +297,20 @@ fn body_limit_exact_boundary_succeeds() {
 
 #[test]
 fn tenant_extraction_routes_to_correct_backend() {
-    let acme_port = start_backend("acme-backend");
-    let globex_port = start_backend("globex-backend");
-    let default_port = start_backend("default-backend");
+    let acme_port_guard = start_backend_with_shutdown("acme-backend");
+    let acme_port = acme_port_guard.port();
+    let globex_port_guard = start_backend_with_shutdown("globex-backend");
+    let globex_port = globex_port_guard.port();
+    let default_port_guard = start_backend_with_shutdown("default-backend");
+    let default_port = default_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = tenant_routing_yaml(proxy_port, acme_port, globex_port, default_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post("/api/data", r#"{"tenant_id":"acme","query":"SELECT *"}"#),
     );
     assert_eq!(parse_status(&raw), 200, "acme tenant routing should return 200");
@@ -287,7 +321,7 @@ fn tenant_extraction_routes_to_correct_backend() {
     );
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post("/api/data", r#"{"tenant_id":"globex","query":"SELECT *"}"#),
     );
     assert_eq!(parse_status(&raw), 200, "globex tenant routing should return 200");
@@ -300,17 +334,20 @@ fn tenant_extraction_routes_to_correct_backend() {
 
 #[test]
 fn tenant_extraction_unknown_tenant_routes_to_default() {
-    let acme_port = start_backend("acme-backend");
-    let globex_port = start_backend("globex-backend");
-    let default_port = start_backend("default-backend");
+    let acme_port_guard = start_backend_with_shutdown("acme-backend");
+    let acme_port = acme_port_guard.port();
+    let globex_port_guard = start_backend_with_shutdown("globex-backend");
+    let globex_port = globex_port_guard.port();
+    let default_port_guard = start_backend_with_shutdown("default-backend");
+    let default_port = default_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = tenant_routing_yaml(proxy_port, acme_port, globex_port, default_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         &json_post("/api/data", r#"{"tenant_id":"unknown","query":"SELECT *"}"#),
     );
     assert_eq!(parse_status(&raw), 200, "unknown tenant should return 200");
@@ -323,16 +360,19 @@ fn tenant_extraction_unknown_tenant_routes_to_default() {
 
 #[test]
 fn tenant_extraction_missing_tenant_routes_to_default() {
-    let acme_port = start_backend("acme-backend");
-    let globex_port = start_backend("globex-backend");
-    let default_port = start_backend("default-backend");
+    let acme_port_guard = start_backend_with_shutdown("acme-backend");
+    let acme_port = acme_port_guard.port();
+    let globex_port_guard = start_backend_with_shutdown("globex-backend");
+    let globex_port = globex_port_guard.port();
+    let default_port_guard = start_backend_with_shutdown("default-backend");
+    let default_port = default_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = tenant_routing_yaml(proxy_port, acme_port, globex_port, default_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let raw = http_send(&addr, &json_post("/api/data", r#"{"query":"SELECT *"}"#));
+    let raw = http_send(proxy.addr(), &json_post("/api/data", r#"{"query":"SELECT *"}"#));
     assert_eq!(parse_status(&raw), 200, "missing tenant should return 200");
     assert_eq!(
         parse_body(&raw),

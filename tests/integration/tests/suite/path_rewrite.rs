@@ -3,7 +3,7 @@
 
 //! Integration tests for the path_rewrite filter.
 
-use praxis_test_utils::{free_port, http_get, start_proxy, start_uri_echo_backend};
+use praxis_test_utils::{free_port, http_get, start_proxy, start_uri_echo_backend_with_shutdown};
 
 // -----------------------------------------------------------------------------
 // Tests
@@ -11,7 +11,8 @@ use praxis_test_utils::{free_port, http_get, start_proxy, start_uri_echo_backend
 
 #[test]
 fn strip_prefix_rewrites_upstream_path() {
-    let backend_port = start_uri_echo_backend();
+    let backend_guard = start_uri_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
     let yaml = format!(
         r#"
@@ -41,16 +42,17 @@ filter_chains:
 "#
     );
     let config = praxis_core::config::Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, body) = http_get(&addr, "/api/v1/users", None);
+    let (status, body) = http_get(proxy.addr(), "/api/v1/users", None);
     assert_eq!(status, 200, "request should succeed");
     assert_eq!(body, "/users", "upstream should see stripped path");
 }
 
 #[test]
 fn strip_prefix_preserves_query_string() {
-    let backend_port = start_uri_echo_backend();
+    let backend_port_guard = start_uri_echo_backend_with_shutdown();
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
     let yaml = format!(
         r#"
@@ -80,9 +82,9 @@ filter_chains:
 "#
     );
     let config = praxis_core::config::Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, body) = http_get(&addr, "/api/items?sort=name&limit=10", None);
+    let (status, body) = http_get(proxy.addr(), "/api/items?sort=name&limit=10", None);
     assert_eq!(status, 200, "request should succeed");
     assert_eq!(
         body, "/items?sort=name&limit=10",
@@ -92,7 +94,8 @@ filter_chains:
 
 #[test]
 fn add_prefix_prepends_to_upstream_path() {
-    let backend_port = start_uri_echo_backend();
+    let backend_port_guard = start_uri_echo_backend_with_shutdown();
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
     let yaml = format!(
         r#"
@@ -119,16 +122,17 @@ filter_chains:
 "#
     );
     let config = praxis_core::config::Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, body) = http_get(&addr, "/users", None);
+    let (status, body) = http_get(proxy.addr(), "/users", None);
     assert_eq!(status, 200, "request should succeed");
     assert_eq!(body, "/api/v2/users", "upstream should see prefixed path");
 }
 
 #[test]
 fn replace_rewrites_upstream_path_with_regex() {
-    let backend_port = start_uri_echo_backend();
+    let backend_port_guard = start_uri_echo_backend_with_shutdown();
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
     let yaml = format!(
         r#"
@@ -160,17 +164,19 @@ filter_chains:
 "#
     );
     let config = praxis_core::config::Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, body) = http_get(&addr, "/old/resource/42", None);
+    let (status, body) = http_get(proxy.addr(), "/old/resource/42", None);
     assert_eq!(status, 200, "request should succeed");
     assert_eq!(body, "/new/resource/42", "upstream should see regex-rewritten path");
 }
 
 #[test]
 fn rewrite_then_route_uses_rewritten_path() {
-    let backend_a_port = start_uri_echo_backend();
-    let backend_b_port = start_uri_echo_backend();
+    let backend_a_port_guard = start_uri_echo_backend_with_shutdown();
+    let backend_a_port = backend_a_port_guard.port();
+    let backend_b_port_guard = start_uri_echo_backend_with_shutdown();
+    let backend_b_port = backend_b_port_guard.port();
     let proxy_port = free_port();
     let yaml = format!(
         r#"
@@ -205,9 +211,9 @@ filter_chains:
 "#
     );
     let config = praxis_core::config::Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, body) = http_get(&addr, "/api/v1/users/42", None);
+    let (status, body) = http_get(proxy.addr(), "/api/v1/users/42", None);
     assert_eq!(status, 200, "request should succeed");
     assert_eq!(
         body, "/users/42",
@@ -217,7 +223,8 @@ filter_chains:
 
 #[test]
 fn no_rewrite_when_prefix_does_not_match() {
-    let backend_port = start_uri_echo_backend();
+    let backend_port_guard = start_uri_echo_backend_with_shutdown();
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
     let yaml = format!(
         r#"
@@ -247,9 +254,9 @@ filter_chains:
 "#
     );
     let config = praxis_core::config::Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, body) = http_get(&addr, "/other/path", None);
+    let (status, body) = http_get(proxy.addr(), "/other/path", None);
     assert_eq!(status, 200, "request should succeed");
     assert_eq!(
         body, "/other/path",

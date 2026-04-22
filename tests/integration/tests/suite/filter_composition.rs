@@ -6,8 +6,8 @@
 use praxis_core::config::Config;
 use praxis_filter::{FilterAction, FilterError, HttpFilter, HttpFilterContext};
 use praxis_test_utils::{
-    free_port, http_get, http_send, parse_body, parse_status, start_backend, start_header_echo_backend, start_proxy,
-    start_proxy_with_registry,
+    free_port, http_get, http_send, parse_body, parse_status, start_backend_with_shutdown,
+    start_header_echo_backend_with_shutdown, start_proxy, start_proxy_with_registry,
 };
 
 // -----------------------------------------------------------------------------
@@ -16,7 +16,8 @@ use praxis_test_utils::{
 
 #[test]
 fn multiple_request_filters_all_execute_in_order() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -56,9 +57,12 @@ filter_chains:
             praxis_filter::FilterFactory::Http(std::sync::Arc::new(|_| Ok(Box::new(SecondRequestFilter)))),
         )
         .expect("duplicate filter name");
-    let addr = start_proxy_with_registry(&config, &registry);
+    let proxy = start_proxy_with_registry(&config, &registry);
 
-    let raw = http_send(&addr, "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    let raw = http_send(
+        proxy.addr(),
+        "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    );
     let body = parse_body(&raw);
     let body_lower = body.to_lowercase();
     assert!(
@@ -73,7 +77,8 @@ filter_chains:
 
 #[test]
 fn reject_filter_prevents_subsequent_filters_from_executing() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -113,15 +118,16 @@ filter_chains:
             praxis_filter::FilterFactory::Http(std::sync::Arc::new(|_| Ok(Box::new(FirstRequestFilter)))),
         )
         .expect("duplicate filter name");
-    let addr = start_proxy_with_registry(&config, &registry);
+    let proxy = start_proxy_with_registry(&config, &registry);
 
-    let (status, _body) = http_get(&addr, "/", None);
+    let (status, _body) = http_get(proxy.addr(), "/", None);
     assert_eq!(status, 403, "reject filter should produce 403 before other filters run");
 }
 
 #[test]
 fn multiple_response_filters_compose_headers() {
-    let backend_port = start_backend("composed");
+    let backend_port_guard = start_backend_with_shutdown("composed");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -161,9 +167,12 @@ filter_chains:
             praxis_filter::FilterFactory::Http(std::sync::Arc::new(|_| Ok(Box::new(ResponseBetaFilter)))),
         )
         .expect("duplicate filter name");
-    let addr = start_proxy_with_registry(&config, &registry);
+    let proxy = start_proxy_with_registry(&config, &registry);
 
-    let raw = http_send(&addr, "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    let raw = http_send(
+        proxy.addr(),
+        "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    );
     let status = parse_status(&raw);
     assert_eq!(status, 200, "composed response should return 200");
     let raw_lower = raw.to_lowercase();
@@ -179,7 +188,8 @@ filter_chains:
 
 #[test]
 fn access_log_and_headers_filters_compose() {
-    let backend_port = start_backend("composed ok");
+    let backend_port_guard = start_backend_with_shutdown("composed ok");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -209,10 +219,10 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         "GET /test HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     );
     let status = parse_status(&raw);
@@ -227,7 +237,8 @@ filter_chains:
 
 #[test]
 fn request_id_and_headers_filters_compose() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -257,9 +268,12 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let raw = http_send(&addr, "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    let raw = http_send(
+        proxy.addr(),
+        "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    );
     let status = parse_status(&raw);
     assert_eq!(status, 200, "request_id + headers composition should return 200");
 
@@ -277,7 +291,8 @@ filter_chains:
 
 #[test]
 fn conditional_filter_does_not_affect_unconditional_filters() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -313,10 +328,10 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         "GET /other HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     );
     let body = parse_body(&raw);
@@ -331,7 +346,7 @@ filter_chains:
     );
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         "GET /api/data HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     );
     let body = parse_body(&raw);

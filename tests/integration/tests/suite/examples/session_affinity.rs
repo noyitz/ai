@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use praxis_test_utils::{free_port, http_send, parse_body, start_backend, start_proxy};
+use praxis_test_utils::{free_port, http_send, parse_body, start_backend_with_shutdown, start_proxy};
 
 // -----------------------------------------------------------------------------
 // Tests
@@ -13,9 +13,12 @@ use praxis_test_utils::{free_port, http_send, parse_body, start_backend, start_p
 
 #[test]
 fn session_affinity() {
-    let port_a = start_backend("sa-a");
-    let port_b = start_backend("sa-b");
-    let port_c = start_backend("sa-c");
+    let port_a_guard = start_backend_with_shutdown("sa-a");
+    let port_a = port_a_guard.port();
+    let port_b_guard = start_backend_with_shutdown("sa-b");
+    let port_b = port_b_guard.port();
+    let port_c_guard = start_backend_with_shutdown("sa-c");
+    let port_c = port_c_guard.port();
     let proxy_port = free_port();
     let config = super::load_example_config(
         "traffic-management/session-affinity.yaml",
@@ -26,12 +29,12 @@ fn session_affinity() {
             ("127.0.0.1:3003", port_c),
         ]),
     );
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let mut first_body = None;
     for _ in 0..6 {
         let raw = http_send(
-            &addr,
+            proxy.addr(),
             "GET / HTTP/1.1\r\n\
              Host: localhost\r\n\
              X-User-Id: user-42\r\n\
@@ -50,7 +53,7 @@ fn session_affinity() {
     let mut backends_seen = HashSet::new();
     for i in 0..30 {
         let raw = http_send(
-            &addr,
+            proxy.addr(),
             &format!(
                 "GET / HTTP/1.1\r\n\
                  Host: localhost\r\n\

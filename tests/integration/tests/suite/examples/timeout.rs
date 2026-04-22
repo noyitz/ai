@@ -6,7 +6,7 @@
 use std::time::Duration;
 
 use praxis_core::config::Config;
-use praxis_test_utils::{free_port, http_get, start_backend, start_proxy, start_slow_backend};
+use praxis_test_utils::{free_port, http_get, start_backend_with_shutdown, start_proxy, start_slow_backend};
 
 // -----------------------------------------------------------------------------
 // Tests
@@ -14,7 +14,8 @@ use praxis_test_utils::{free_port, http_get, start_backend, start_proxy, start_s
 
 #[test]
 fn timeout() {
-    let fast_port = start_backend("fast");
+    let fast_port_guard = start_backend_with_shutdown("fast");
+    let fast_port = fast_port_guard.port();
     let proxy_port = free_port();
     let yaml = format!(
         r#"
@@ -39,8 +40,8 @@ filter_chains:
 "#
     );
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
-    let (status, body) = http_get(&addr, "/", None);
+    let proxy = start_proxy(&config);
+    let (status, body) = http_get(proxy.addr(), "/", None);
     assert_eq!(status, 200, "fast backend should return 200 within timeout");
     assert_eq!(body, "fast", "fast backend response should pass through");
 
@@ -69,8 +70,8 @@ filter_chains:
 "#
     );
     let config2 = Config::from_yaml(&yaml2).unwrap();
-    let addr2 = start_proxy(&config2);
-    let (status, body) = http_get(&addr2, "/", None);
+    let proxy2 = start_proxy(&config2);
+    let (status, body) = http_get(proxy2.addr(), "/", None);
     assert_eq!(status, 504, "slow backend should trigger timeout");
     assert!(
         !body.contains("slow"),

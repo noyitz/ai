@@ -3,7 +3,8 @@
 
 use praxis_core::config::Config;
 use praxis_test_utils::{
-    RoutedBackend, free_port, http_get, http_send, parse_body, parse_status, start_header_echo_backend, start_proxy,
+    RoutedBackend, free_port, http_get, http_send, parse_body, parse_status, start_header_echo_backend_with_shutdown,
+    start_proxy,
 };
 
 // -----------------------------------------------------------------------------
@@ -51,17 +52,17 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, body) = http_get(&addr, "/api/users", None);
+    let (status, body) = http_get(proxy.addr(), "/api/users", None);
     assert_eq!(status, 200, "/api/ path should return 200");
     assert_eq!(body, "api-backend", "/api/ should route to api backend");
 
-    let (status, body) = http_get(&addr, "/static/style.css", None);
+    let (status, body) = http_get(proxy.addr(), "/static/style.css", None);
     assert_eq!(status, 200, "/static/ path should return 200");
     assert_eq!(body, "static-backend", "/static/ should route to static backend");
 
-    let (status, body) = http_get(&addr, "/index.html", None);
+    let (status, body) = http_get(proxy.addr(), "/index.html", None);
     assert_eq!(status, 200, "default path should return 200");
     assert_eq!(
         body, "default-backend",
@@ -106,10 +107,10 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         "GET /ok HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     );
     assert_eq!(parse_status(&raw), 200, "200 response should match condition");
@@ -119,7 +120,7 @@ filter_chains:
     );
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         "GET /missing HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     );
     assert_eq!(parse_status(&raw), 404, "missing path should return 404");
@@ -167,10 +168,10 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         "GET /other HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     );
     assert_eq!(
@@ -184,7 +185,7 @@ filter_chains:
     );
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         "GET /skip HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     );
     assert_eq!(
@@ -200,7 +201,8 @@ filter_chains:
 
 #[test]
 fn request_condition_when_matches_adds_header() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -232,10 +234,10 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         "GET /api/users HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     );
     assert_eq!(parse_status(&raw), 200, "/api/ path should return 200");
@@ -246,7 +248,7 @@ filter_chains:
     );
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     );
     assert_eq!(parse_status(&raw), 200, "non-api path should return 200");
@@ -259,7 +261,8 @@ filter_chains:
 
 #[test]
 fn request_condition_unless_skips_filter() {
-    let backend_port = start_header_echo_backend();
+    let backend_guard = start_header_echo_backend_with_shutdown();
+    let backend_port = backend_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -291,10 +294,10 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         "GET /api HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     );
     assert_eq!(parse_status(&raw), 200, "non-healthz path should return 200");
@@ -305,7 +308,7 @@ filter_chains:
     );
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         "GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     );
     assert_eq!(parse_status(&raw), 200, "/healthz path should return 200");

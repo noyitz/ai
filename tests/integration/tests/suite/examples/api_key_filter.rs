@@ -10,7 +10,7 @@ use praxis_filter::{
     FilterAction, FilterError, FilterFactory, FilterRegistry, HttpFilter, HttpFilterContext, Rejection,
 };
 use praxis_test_utils::{
-    free_port, http_get, http_send, parse_body, parse_status, start_backend, start_proxy_with_registry,
+    free_port, http_get, http_send, parse_body, parse_status, start_backend_with_shutdown, start_proxy_with_registry,
 };
 
 // -----------------------------------------------------------------------------
@@ -19,7 +19,8 @@ use praxis_test_utils::{
 
 #[test]
 fn api_key_filter() {
-    let backend_port = start_backend("protected");
+    let backend_port_guard = start_backend_with_shutdown("protected");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
     let yaml = format!(
         r#"
@@ -48,10 +49,10 @@ filter_chains:
     registry
         .register("api_key", FilterFactory::Http(Arc::new(ApiKeyFilter::from_config)))
         .expect("duplicate filter name");
-    let addr = start_proxy_with_registry(&config, &registry);
+    let proxy = start_proxy_with_registry(&config, &registry);
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         "GET / HTTP/1.1\r\n\
          Host: localhost\r\n\
          X-Api-Key: secret-1\r\n\
@@ -61,7 +62,7 @@ filter_chains:
     assert_eq!(parse_body(&raw), "protected", "valid API key should reach backend");
 
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         "GET / HTTP/1.1\r\n\
          Host: localhost\r\n\
          X-Api-Key: wrong\r\n\
@@ -69,7 +70,7 @@ filter_chains:
     );
     assert_eq!(parse_status(&raw), 401, "invalid API key should return 401");
 
-    let (status, _) = http_get(&addr, "/", None);
+    let (status, _) = http_get(proxy.addr(), "/", None);
     assert_eq!(status, 401, "missing API key should return 401");
 }
 

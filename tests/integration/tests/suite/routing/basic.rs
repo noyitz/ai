@@ -4,7 +4,9 @@
 //! Basic proxy and dead backend tests.
 
 use praxis_core::config::Config;
-use praxis_test_utils::{free_port, http_get, http_send, parse_status, simple_proxy_yaml, start_backend, start_proxy};
+use praxis_test_utils::{
+    free_port, http_get, http_send, parse_status, simple_proxy_yaml, start_backend_with_shutdown, start_proxy,
+};
 
 // -----------------------------------------------------------------------------
 // Tests
@@ -16,8 +18,11 @@ fn get_to_dead_backend_returns_502() {
     let proxy_port = free_port();
     let yaml = simple_proxy_yaml(proxy_port, dead_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
-    let raw = http_send(&addr, "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    let proxy = start_proxy(&config);
+    let raw = http_send(
+        proxy.addr(),
+        "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    );
     let status = parse_status(&raw);
     assert_eq!(status, 502, "expected 502 for dead backend, got: {raw}");
 }
@@ -28,9 +33,9 @@ fn post_to_dead_backend_returns_502() {
     let proxy_port = free_port();
     let yaml = simple_proxy_yaml(proxy_port, dead_port);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
     let raw = http_send(
-        &addr,
+        proxy.addr(),
         "POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello",
     );
     let status = parse_status(&raw);
@@ -39,21 +44,25 @@ fn post_to_dead_backend_returns_502() {
 
 #[test]
 fn basic_proxy() {
-    let backend_port = start_backend("hello from backend");
+    let backend_port_guard = start_backend_with_shutdown("hello from backend");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
     let config = Config::from_yaml(&simple_proxy_yaml(proxy_port, backend_port)).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, body) = http_get(&addr, "/", None);
+    let (status, body) = http_get(proxy.addr(), "/", None);
     assert_eq!(status, 200, "basic proxy should return 200");
     assert_eq!(body, "hello from backend", "proxy should forward backend response");
 }
 
 #[test]
 fn round_robin_distribution() {
-    let port_a = start_backend("backend-a");
-    let port_b = start_backend("backend-b");
-    let port_c = start_backend("backend-c");
+    let port_a_guard = start_backend_with_shutdown("backend-a");
+    let port_a = port_a_guard.port();
+    let port_b_guard = start_backend_with_shutdown("backend-b");
+    let port_b = port_b_guard.port();
+    let port_c_guard = start_backend_with_shutdown("backend-c");
+    let port_c = port_c_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -80,13 +89,13 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let mut count_a = 0u32;
     let mut count_b = 0u32;
     let mut count_c = 0u32;
     for _ in 0..15 {
-        let (_status, body) = http_get(&addr, "/", None);
+        let (_status, body) = http_get(proxy.addr(), "/", None);
         match body.as_str() {
             "backend-a" => count_a += 1,
             "backend-b" => count_b += 1,

@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use praxis_test_utils::{free_port, http_get, start_backend, start_proxy};
+use praxis_test_utils::{free_port, http_get, start_backend_with_shutdown, start_proxy};
 
 // -----------------------------------------------------------------------------
 // Tests
@@ -13,21 +13,23 @@ use praxis_test_utils::{free_port, http_get, start_backend, start_proxy};
 
 #[test]
 fn weighted_load_balancing() {
-    let port_light = start_backend("light");
-    let port_heavy = start_backend("heavy");
+    let port_light_guard = start_backend_with_shutdown("light");
+    let port_light = port_light_guard.port();
+    let port_heavy_guard = start_backend_with_shutdown("heavy");
+    let port_heavy = port_heavy_guard.port();
     let proxy_port = free_port();
     let config = super::load_example_config(
         "traffic-management/weighted-load-balancing.yaml",
         proxy_port,
         HashMap::from([("127.0.0.1:3001", port_light), ("127.0.0.1:3002", port_heavy)]),
     );
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
     let total = 200u32;
     let mut light_count = 0u32;
     let mut heavy_count = 0u32;
     for _ in 0..total {
-        let (status, body) = http_get(&addr, "/", None);
+        let (status, body) = http_get(proxy.addr(), "/", None);
         assert_eq!(status, 200, "weighted LB request should return 200");
         match body.as_str() {
             "light" => light_count += 1,

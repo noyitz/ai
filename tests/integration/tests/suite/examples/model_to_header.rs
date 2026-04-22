@@ -4,7 +4,7 @@
 //! Tests for model-to-header filter behavior.
 
 use praxis_core::config::Config;
-use praxis_test_utils::{free_port, http_post, start_backend, start_proxy};
+use praxis_test_utils::{free_port, http_post, start_backend_with_shutdown, start_proxy};
 
 // -----------------------------------------------------------------------------
 // Tests
@@ -12,13 +12,19 @@ use praxis_test_utils::{free_port, http_post, start_backend, start_proxy};
 
 #[test]
 fn model_to_header_routes_by_model_field() {
-    let port_a = start_backend("model-a-response");
-    let port_default = start_backend("default-response");
+    let port_a_guard = start_backend_with_shutdown("model-a-response");
+    let port_a = port_a_guard.port();
+    let port_default_guard = start_backend_with_shutdown("default-response");
+    let port_default = port_default_guard.port();
     let proxy_port = free_port();
     let yaml = make_yaml(proxy_port, "mistral-large-latest", port_a, port_default);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
-    let (status, body) = http_post(&addr, "/v1/chat", r#"{"model":"mistral-large-latest","messages":[]}"#);
+    let proxy = start_proxy(&config);
+    let (status, body) = http_post(
+        proxy.addr(),
+        "/v1/chat",
+        r#"{"model":"mistral-large-latest","messages":[]}"#,
+    );
     assert_eq!(status, 200, "matching model should return 200");
     assert_eq!(
         body, "model-a-response",
@@ -28,26 +34,30 @@ fn model_to_header_routes_by_model_field() {
 
 #[test]
 fn model_to_header_falls_through_on_unknown_model() {
-    let port_a = start_backend("model-a-response");
-    let port_default = start_backend("default-response");
+    let port_a_guard = start_backend_with_shutdown("model-a-response");
+    let port_a = port_a_guard.port();
+    let port_default_guard = start_backend_with_shutdown("default-response");
+    let port_default = port_default_guard.port();
     let proxy_port = free_port();
     let yaml = make_yaml(proxy_port, "mistral-large-latest", port_a, port_default);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
-    let (status, body) = http_post(&addr, "/v1/chat", r#"{"model":"unknown","messages":[]}"#);
+    let proxy = start_proxy(&config);
+    let (status, body) = http_post(proxy.addr(), "/v1/chat", r#"{"model":"unknown","messages":[]}"#);
     assert_eq!(status, 200, "unknown model should return 200");
     assert_eq!(body, "default-response", "unknown model should fall through to default");
 }
 
 #[test]
 fn model_to_header_continues_without_model_field() {
-    let port_a = start_backend("model-a-response");
-    let port_default = start_backend("default-response");
+    let port_a_guard = start_backend_with_shutdown("model-a-response");
+    let port_a = port_a_guard.port();
+    let port_default_guard = start_backend_with_shutdown("default-response");
+    let port_default = port_default_guard.port();
     let proxy_port = free_port();
     let yaml = make_yaml(proxy_port, "mistral-large-latest", port_a, port_default);
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
-    let (status, body) = http_post(&addr, "/v1/chat", r#"{"messages":[]}"#);
+    let proxy = start_proxy(&config);
+    let (status, body) = http_post(proxy.addr(), "/v1/chat", r#"{"messages":[]}"#);
     assert_eq!(status, 200, "missing model field should return 200");
     assert_eq!(body, "default-response", "missing model should fall through to default");
 }

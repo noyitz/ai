@@ -5,7 +5,7 @@
 
 use praxis_core::config::Config;
 use praxis_test_utils::{
-    free_port, http_get, http_send, parse_header, parse_status, start_backend, start_proxy, wait_for_http,
+    free_port, http_get, http_send, parse_header, parse_status, start_backend_with_shutdown, start_proxy, wait_for_http,
 };
 
 // -----------------------------------------------------------------------------
@@ -14,8 +14,10 @@ use praxis_test_utils::{
 
 #[test]
 fn acl_allow_loopback_in_full_pipeline() {
-    let port_a = start_backend("backend-a");
-    let port_b = start_backend("backend-b");
+    let port_a_guard = start_backend_with_shutdown("backend-a");
+    let port_a = port_a_guard.port();
+    let port_b_guard = start_backend_with_shutdown("backend-b");
+    let port_b = port_b_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -51,20 +53,21 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, body) = http_get(&addr, "/api/users", None);
+    let (status, body) = http_get(proxy.addr(), "/api/users", None);
     assert_eq!(status, 200, "loopback should be allowed by ACL");
     assert_eq!(body, "backend-a", "/api/ should route to api backend");
 
-    let (status, body) = http_get(&addr, "/index.html", None);
+    let (status, body) = http_get(proxy.addr(), "/index.html", None);
     assert_eq!(status, 200, "loopback should be allowed for web path");
     assert_eq!(body, "backend-b", "default path should route to web backend");
 }
 
 #[test]
 fn acl_with_path_condition_only_enforces_on_matching_path() {
-    let backend_port = start_backend("ok");
+    let backend_port_guard = start_backend_with_shutdown("ok");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -96,19 +99,20 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, _) = http_get(&addr, "/admin/settings", None);
+    let (status, _) = http_get(proxy.addr(), "/admin/settings", None);
     assert_eq!(status, 403, "/admin/ path should be blocked by ACL");
 
-    let (status, body) = http_get(&addr, "/public/page", None);
+    let (status, body) = http_get(proxy.addr(), "/public/page", None);
     assert_eq!(status, 200, "non-admin path should bypass ACL");
     assert_eq!(body, "ok", "non-admin path should return backend response");
 }
 
 #[test]
 fn acl_with_response_headers_on_allowed_request() {
-    let backend_port = start_backend("allowed");
+    let backend_port_guard = start_backend_with_shutdown("allowed");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -143,9 +147,12 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let raw = http_send(&addr, "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    let raw = http_send(
+        proxy.addr(),
+        "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    );
     assert_eq!(parse_status(&raw), 200, "allowed request should return 200");
     assert_eq!(
         parse_header(&raw, "x-acl-status"),
@@ -156,7 +163,8 @@ filter_chains:
 
 #[test]
 fn per_listener_acl_rules() {
-    let backend_port = start_backend("ok");
+    let backend_port_guard = start_backend_with_shutdown("ok");
+    let backend_port = backend_port_guard.port();
     let port_open = free_port();
     let port_locked = free_port();
 
@@ -197,7 +205,7 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    start_proxy(&config);
+    let _proxy = start_proxy(&config);
     wait_for_http(&format!("127.0.0.1:{port_locked}"));
 
     let (status, body) = http_get(&format!("127.0.0.1:{port_open}"), "/", None);
@@ -210,7 +218,8 @@ filter_chains:
 
 #[test]
 fn acl_exact_host_cidr_32() {
-    let backend_port = start_backend("precise");
+    let backend_port_guard = start_backend_with_shutdown("precise");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -241,16 +250,17 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, body) = http_get(&addr, "/", None);
+    let (status, body) = http_get(proxy.addr(), "/", None);
     assert_eq!(status, 200, "/32 CIDR should match 127.0.0.1 exactly");
     assert_eq!(body, "precise", "/32 CIDR should forward backend response");
 }
 
 #[test]
 fn acl_with_observability_filters() {
-    let backend_port = start_backend("observed");
+    let backend_port_guard = start_backend_with_shutdown("observed");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -283,9 +293,9 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, body) = http_get(&addr, "/test", None);
+    let (status, body) = http_get(proxy.addr(), "/test", None);
     assert_eq!(
         status, 200,
         "allowed request with observability filters should return 200"
@@ -298,7 +308,8 @@ filter_chains:
 
 #[test]
 fn acl_unless_condition_exempts_path() {
-    let backend_port = start_backend("healthy");
+    let backend_port_guard = start_backend_with_shutdown("healthy");
+    let backend_port = backend_port_guard.port();
     let proxy_port = free_port();
 
     let yaml = format!(
@@ -330,12 +341,12 @@ filter_chains:
     );
 
     let config = Config::from_yaml(&yaml).unwrap();
-    let addr = start_proxy(&config);
+    let proxy = start_proxy(&config);
 
-    let (status, body) = http_get(&addr, "/healthz", None);
+    let (status, body) = http_get(proxy.addr(), "/healthz", None);
     assert_eq!(status, 200, "/healthz should bypass ACL via unless condition");
     assert_eq!(body, "healthy", "/healthz should return backend response");
 
-    let (status, _) = http_get(&addr, "/api/data", None);
+    let (status, _) = http_get(proxy.addr(), "/api/data", None);
     assert_eq!(status, 403, "non-exempt path should be denied by ACL");
 }
