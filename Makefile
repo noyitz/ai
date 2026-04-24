@@ -18,7 +18,7 @@ endif
 	test-configuration test-integration test-conformance \
 	test-security test-security-suite test-resilience test-smoke \
 	bench \
-	lint fmt audit coverage coverage-check \
+	lint fmt doc audit coverage coverage-check \
 	fuzz fuzz-build \
 	container container-run \
 	test-container test-container-run \
@@ -156,6 +156,9 @@ lint:
 
 fmt:
 	cargo +nightly fmt --all
+
+doc:
+	RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --document-private-items
 
 audit:
 	cargo audit

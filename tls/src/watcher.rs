@@ -38,14 +38,12 @@ const DEBOUNCE_MS: u64 = 500;
 /// Watches cert and key files for changes, reloading on modification.
 ///
 /// Spawns as a tokio background task. Debounces events by
-/// [`DEBOUNCE_MS`] to handle atomic rename patterns (Kubernetes
+/// `DEBOUNCE_MS` to handle atomic rename patterns (Kubernetes
 /// secret updates, certbot, etc.).
 ///
 /// ```ignore
 /// let handle = CertWatcher::spawn(resolver_arc, pair, shutdown_rx);
 /// ```
-///
-/// [`DEBOUNCE_MS`]: DEBOUNCE_MS
 pub struct CertWatcher;
 
 impl CertWatcher {

@@ -42,13 +42,9 @@ const DEFAULT_HEADER: &str = "X-Model";
 /// let filter = ModelToHeaderFilter::from_config(&yaml).unwrap();
 /// assert_eq!(filter.name(), "model_to_header");
 /// ```
-///
-/// [`JsonBodyFieldFilter`]: crate::JsonBodyFieldFilter
 pub struct ModelToHeaderFilter {
     /// Delegated body-field extraction filter (type-erased
-    /// [`JsonBodyFieldFilter`]).
-    ///
-    /// [`JsonBodyFieldFilter`]: crate::JsonBodyFieldFilter
+    /// `JsonBodyFieldFilter`).
     inner: Box<dyn HttpFilter>,
 }
 
@@ -59,10 +55,9 @@ impl ModelToHeaderFilter {
     ///
     /// # Errors
     ///
-    /// Returns [`FilterError`] if the inner [`JsonBodyFieldFilter`] config is invalid.
+    /// Returns [`FilterError`] if the inner `JsonBodyFieldFilter` config is invalid.
     ///
     /// [`FilterError`]: crate::FilterError
-    /// [`JsonBodyFieldFilter`]: crate::JsonBodyFieldFilter
     ///
     /// ```ignore
     /// use praxis_filter::ModelToHeaderFilter;

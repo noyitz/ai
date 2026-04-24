@@ -3,7 +3,7 @@
 
 //! Top-level benchmark report for serialization.
 //!
-//! [`BenchmarkReport`] wraps all scenario results.
+//! `BenchmarkReport` wraps all scenario results.
 
 use std::collections::BTreeMap;
 

@@ -15,7 +15,7 @@ use praxis_protocol::ListenerPipelines;
 
 /// Build a [`FilterPipeline`] for each listener by resolving named chains.
 ///
-/// [`FilterPipeline`]: praxis_proxy_filter::FilterPipeline
+/// [`FilterPipeline`]: praxis_filter::FilterPipeline
 pub(crate) fn resolve_pipelines(
     config: &Config,
     registry: &FilterRegistry,

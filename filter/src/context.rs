@@ -28,9 +28,7 @@ pub struct HttpFilterContext<'a> {
 
     /// Tracks which pipeline filter indices actually executed
     /// during the request phase. The response phase skips
-    /// filters that did not run (e.g. due to [`SkipTo`]).
-    ///
-    /// [`SkipTo`]: crate::pipeline::branch::BranchOutcome::SkipTo
+    /// filters that did not run (e.g. due to `SkipTo`).
     pub executed_filter_indices: Vec<bool>,
 
     /// The cluster name selected by the router filter.
@@ -73,7 +71,7 @@ pub struct HttpFilterContext<'a> {
     /// Rewritten URI path for the upstream request.
     ///
     /// Set by the `path_rewrite` or `url_rewrite` filter during
-    /// `on_request`. Applied to the upstream [`RequestHeader`] in the
+    /// `on_request`. Applied to the upstream `RequestHeader` in the
     /// protocol layer.
     ///
     /// The router checks this field before the original request URI.
@@ -85,8 +83,6 @@ pub struct HttpFilterContext<'a> {
     /// Pipeline validation rejects this by default; set
     /// `allow_rewrite_override: true` on the later filter to
     /// permit it. Or, better yet, don't.
-    ///
-    /// [`RequestHeader`]: pingora_http::RequestHeader
     pub rewritten_path: Option<String>,
 
     /// The upstream peer selected by the load balancer filter.

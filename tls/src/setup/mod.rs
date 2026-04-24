@@ -3,12 +3,11 @@
 
 //! Shared TLS listener setup: builds `rustls::ServerConfig` from [`ListenerTls`].
 //!
-//! When a listener has multiple certificates, an [`SniCertResolver`]
+//! When a listener has multiple certificates, an `SniCertResolver`
 //! is constructed so rustls selects the correct certificate based on
 //! the client's SNI hostname.
 //!
 //! [`ListenerTls`]: crate::ListenerTls
-//! [`SniCertResolver`]: crate::setup::SniCertResolver
 
 pub(crate) mod loader;
 mod sni;
@@ -28,7 +27,7 @@ use crate::{ClientCertMode, ListenerTls, TlsError, TlsVersion, client_auth};
 /// verifier, TLS version constraints, and multi-cert SNI resolution.
 ///
 /// When `certificates` has a single entry, uses `with_single_cert`.
-/// When multiple entries exist, builds an [`SniCertResolver`] and
+/// When multiple entries exist, builds an `SniCertResolver` and
 /// uses `with_cert_resolver`.
 ///
 /// # Errors
@@ -51,7 +50,6 @@ use crate::{ClientCertMode, ListenerTls, TlsError, TlsVersion, client_auth};
 ///
 /// [`TlsError`]: crate::TlsError
 /// [`ListenerTls`]: crate::ListenerTls
-/// [`SniCertResolver`]: crate::setup::SniCertResolver
 #[allow(
     clippy::too_many_lines,
     clippy::indexing_slicing,

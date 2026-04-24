@@ -294,7 +294,7 @@ pub fn parse(
     })
 }
 
-/// Convert vegeta latencies to [`LatencyMetrics`].
+/// Convert vegeta latencies to `LatencyMetrics`.
 fn vegeta_latency(l: &VegetaLatencies) -> crate::result::LatencyMetrics {
     crate::result::LatencyMetrics {
         min: ns_to_secs(l.min),

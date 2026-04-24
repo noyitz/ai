@@ -81,7 +81,7 @@ pub(crate) fn spawn_tcp_server(handler: impl Fn(TcpStream) + Send + Clone + 'sta
 }
 
 /// RAII guard that shuts down a backend spawned by
-/// [`spawn_tcp_server_with_shutdown`] when dropped.
+/// `spawn_tcp_server_with_shutdown` when dropped.
 pub struct BackendGuard {
     /// The port the backend is listening on.
     port: u16,

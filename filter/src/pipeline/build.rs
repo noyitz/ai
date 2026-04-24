@@ -56,7 +56,7 @@ impl FilterPipeline {
     /// Build a pipeline with branch chain resolution.
     ///
     /// Like [`build`], but also resolves `branch_chains` on each
-    /// filter entry into runtime [`ResolvedBranch`] types using
+    /// filter entry into runtime `ResolvedBranch` types using
     /// the provided chain lookup table.
     ///
     /// # Errors
@@ -65,7 +65,6 @@ impl FilterPipeline {
     /// or any branch chain reference is unresolvable.
     ///
     /// [`build`]: FilterPipeline::build
-    /// [`ResolvedBranch`]: super::branch::ResolvedBranch
     pub fn build_with_chains(
         entries: &mut [FilterEntry],
         registry: &FilterRegistry,

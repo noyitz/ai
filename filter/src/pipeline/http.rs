@@ -28,13 +28,11 @@ impl FilterPipeline {
     ///
     /// Tracks which filter indices actually executed so the
     /// response phase can skip filters that were bypassed
-    /// (e.g. by [`SkipTo`]).
+    /// (e.g. by `SkipTo`).
     ///
     /// # Errors
     ///
     /// Returns [`FilterError`] if any filter fails.
-    ///
-    /// [`SkipTo`]: BranchOutcome::SkipTo
     #[allow(clippy::indexing_slicing, reason = "while loop bounds idx")]
     pub async fn execute_http_request(&self, ctx: &mut HttpFilterContext<'_>) -> Result<FilterAction, FilterError> {
         ctx.executed_filter_indices = vec![false; self.filters.len()];

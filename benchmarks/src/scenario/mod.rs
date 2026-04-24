@@ -3,7 +3,7 @@
 
 //! Scenario definition and configuration.
 //!
-//! A [`Scenario`] describes a benchmark workload: which proxies
+//! A `Scenario` describes a benchmark workload: which proxies
 //! to test, what traffic pattern to generate, and how many runs
 //! to perform.
 

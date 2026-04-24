@@ -112,12 +112,10 @@ pub trait HttpFilter: Send + Sync {
     }
 
     /// Returns the compression configuration if this filter enables
-    /// response compression. Only [`CompressionFilter`] overrides
+    /// response compression. Only `CompressionFilter` overrides
     /// this; all other filters return `None`.
     ///
     /// Default: `None`
-    ///
-    /// [`CompressionFilter`]: crate::CompressionFilter
     fn compression_config(&self) -> Option<&CompressionConfig> {
         None
     }

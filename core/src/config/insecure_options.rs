@@ -47,7 +47,7 @@ pub struct InsecureOptions {
     /// Allow running as root (UID 0).
     pub allow_root: bool,
 
-    /// Allow admin endpoint on 0.0.0.0 / [::].
+    /// Allow admin endpoint on `0.0.0.0` / `[::]`.
     pub allow_public_admin: bool,
 
     /// Allow stream-buffered body mode with no size limit.

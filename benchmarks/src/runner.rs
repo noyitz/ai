@@ -3,7 +3,7 @@
 
 //! Runner orchestration for benchmark execution.
 //!
-//! The [`Runner`] coordinates the full benchmark lifecycle:
+//! The `Runner` coordinates the full benchmark lifecycle:
 //! start proxy, start backend, warmup, measurement, result
 //! collection, repetition, and median computation.
 
@@ -216,7 +216,7 @@ impl Runner {
     }
 
     /// Parse the raw JSON output from a load tool into a
-    /// [`BenchmarkResult`].
+    /// `BenchmarkResult`.
     fn parse_result(&self, json: &str, proxy_name: &str) -> Result<crate::result::BenchmarkResult, BenchmarkError> {
         let raw = self.include_raw_report;
         match &self.scenario.workload {

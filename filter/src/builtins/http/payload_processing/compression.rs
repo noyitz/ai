@@ -117,8 +117,6 @@ fn default_min_size() -> usize {
 /// let filter = CompressionFilter::from_config(&yaml).unwrap();
 /// assert_eq!(filter.name(), "compression");
 /// ```
-///
-/// [`ResponseCompressionBuilder`]: pingora_core::modules::http::compression::ResponseCompressionBuilder
 pub struct CompressionFilter {
     /// Extracted configuration shared with the handler.
     config: CompressionConfig,
