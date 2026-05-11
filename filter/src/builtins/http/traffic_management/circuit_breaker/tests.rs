@@ -94,6 +94,46 @@ fn half_open_failure_transitions_to_open() {
 }
 
 #[test]
+fn half_open_allows_only_one_probe() {
+    let cb = CircuitBreaker::new(1, 0);
+    cb.record_failure();
+    assert_eq!(cb.state(), CircuitState::Open, "should be open after failure");
+
+    let first = cb.check();
+    assert_eq!(first, CircuitState::HalfOpen, "first check should get HalfOpen (probe)");
+
+    let second = cb.check();
+    assert_eq!(
+        second,
+        CircuitState::Open,
+        "second check should get Open (reject) while probe is in flight"
+    );
+
+    let third = cb.check();
+    assert_eq!(
+        third,
+        CircuitState::Open,
+        "subsequent checks should continue returning Open"
+    );
+}
+
+#[test]
+fn half_open_resets_after_successful_probe() {
+    let cb = CircuitBreaker::new(1, 0);
+    cb.record_failure();
+
+    let probe = cb.check();
+    assert_eq!(probe, CircuitState::HalfOpen, "first caller gets the probe");
+    assert_eq!(cb.check(), CircuitState::Open, "second caller is rejected");
+
+    cb.record_success();
+    assert_eq!(cb.state(), CircuitState::Closed, "success closes the circuit");
+
+    let after = cb.check();
+    assert_eq!(after, CircuitState::Closed, "circuit is fully closed again");
+}
+
+#[test]
 fn multiple_successes_in_closed_keep_closed() {
     let cb = CircuitBreaker::new(3, 30);
     for _ in 0..10 {
