@@ -88,11 +88,7 @@ pub(crate) fn spawn_config_watcher(params: WatcherParams) -> std::thread::JoinHa
 async fn watch_loop(params: WatcherParams) {
     let (tx, mut rx) = mpsc::channel::<()>(16);
 
-    let watch_dir = params
-        .config_path
-        .parent()
-        .unwrap_or_else(|| std::path::Path::new("."))
-        .to_path_buf();
+    let watch_dir = watch_dir_for_path(&params.config_path);
 
     let _watcher = match setup_watcher(tx, &watch_dir) {
         Ok(w) => w,
@@ -214,6 +210,18 @@ async fn drain_and_debounce(rx: &mut mpsc::Receiver<()>) {
 /// Whether a notify event kind is relevant for config reload.
 fn is_relevant_event(kind: EventKind) -> bool {
     matches!(kind, EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_))
+}
+
+/// Resolve the directory to watch for a given config path.
+///
+/// Falls back to `.` when the path has no non-empty parent, covering
+/// bare filenames like `praxis.yaml` where [`std::path::Path::parent`] returns
+/// `Some("")` rather than `None`.
+fn watch_dir_for_path(path: &std::path::Path) -> PathBuf {
+    path.parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .to_path_buf()
 }
 
 // -----------------------------------------------------------------------------
@@ -372,9 +380,87 @@ mod tests {
         shutdown.cancel();
     }
 
+    #[test]
+    fn watch_dir_for_path_bare_filename() {
+        assert_eq!(
+            watch_dir_for_path(std::path::Path::new("praxis.yaml")),
+            PathBuf::from("."),
+            "bare filename should resolve to current directory"
+        );
+    }
+
+    #[test]
+    fn watch_dir_for_path_with_directory() {
+        assert_eq!(
+            watch_dir_for_path(std::path::Path::new("/etc/praxis/praxis.yaml")),
+            PathBuf::from("/etc/praxis"),
+            "absolute path should use its parent directory"
+        );
+    }
+
+    #[test]
+    fn watcher_starts_with_bare_filename() {
+        let _lock = CWD_MUTEX.get_or_init(Mutex::default).lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let _cwd = CwdGuard::new(dir.path());
+
+        std::fs::write("praxis.yaml", VALID_YAML).unwrap();
+
+        let config = Config::from_yaml(VALID_YAML).unwrap();
+        let registry = Arc::new(FilterRegistry::with_builtins());
+        let health_registry = Arc::new(std::collections::HashMap::new());
+        let kv_stores = praxis_core::kv::KvStoreRegistry::new();
+        let pipelines =
+            Arc::new(crate::pipelines::resolve_pipelines(&config, &registry, &health_registry, &kv_stores).unwrap());
+        let health_shutdown = Arc::new(Mutex::new(CancellationToken::new()));
+        let shutdown = CancellationToken::new();
+
+        let handle = spawn_config_watcher(WatcherParams {
+            config_path: PathBuf::from("praxis.yaml"),
+            health_shutdown,
+            initial_config: config,
+            kv_stores,
+            pipelines,
+            registry,
+            shutdown: shutdown.clone(),
+        });
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+            assert!(
+                !handle.is_finished(),
+                "watcher exited early: bare filename caused empty-path notify error"
+            );
+        }
+        shutdown.cancel();
+        handle.join().unwrap();
+    }
+
     // -------------------------------------------------------------------------
     // Test Utilities
     // -------------------------------------------------------------------------
+
+    /// Serializes tests that mutate the process working directory.
+    static CWD_MUTEX: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
+
+    /// RAII guard that restores the process working directory on drop.
+    struct CwdGuard(PathBuf);
+
+    impl CwdGuard {
+        /// Change to `path` and capture the original directory for restore.
+        fn new(path: &std::path::Path) -> Self {
+            let original = std::env::current_dir().unwrap();
+            std::env::set_current_dir(path).unwrap();
+            Self(original)
+        }
+    }
+
+    impl Drop for CwdGuard {
+        fn drop(&mut self) {
+            std::env::set_current_dir(&self.0).expect("failed to restore working directory");
+        }
+    }
 
     /// Valid YAML config for watcher tests.
     const VALID_YAML: &str = r#"
