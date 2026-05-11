@@ -214,7 +214,7 @@ impl ProxyHttp for PingoraHttpHandler {
     }
 
     async fn upstream_peer(&self, _session: &mut Session, ctx: &mut Self::CTX) -> Result<Box<HttpPeer>> {
-        upstream_peer::execute(ctx)
+        upstream_peer::execute(ctx).await
     }
 
     async fn logging(&self, session: &mut Session, e: Option<&pingora_core::Error>, ctx: &mut Self::CTX) {
