@@ -905,6 +905,67 @@ async fn disallowed_preflight_with_pna_includes_private_network_in_vary() {
     }
 }
 
+#[test]
+fn origin_policy_case_insensitive_match() {
+    let policy = build_origin_policy(&["https://example.com".to_owned()]);
+    assert!(
+        policy.is_allowed("HTTPS://EXAMPLE.COM"),
+        "case-insensitive origin should match"
+    );
+    assert!(
+        policy.is_allowed("Https://Example.Com"),
+        "mixed-case origin should match"
+    );
+}
+
+#[test]
+fn origin_policy_default_port_normalization() {
+    let policy = build_origin_policy(&["https://example.com".to_owned()]);
+    assert!(
+        policy.is_allowed("https://example.com:443"),
+        "https with :443 should match without port"
+    );
+
+    let policy_http = build_origin_policy(&["http://example.com".to_owned()]);
+    assert!(
+        policy_http.is_allowed("http://example.com:80"),
+        "http with :80 should match without port"
+    );
+}
+
+#[test]
+fn origin_policy_configured_with_default_port_matches_without() {
+    let policy = build_origin_policy(&["https://example.com:443".to_owned()]);
+    assert!(
+        policy.is_allowed("https://example.com"),
+        "configured :443 should match request without port"
+    );
+}
+
+#[test]
+fn origin_policy_wildcard_case_insensitive() {
+    let policy = build_origin_policy(&["https://*.example.com".to_owned()]);
+    assert!(
+        policy.is_allowed("HTTPS://APP.EXAMPLE.COM"),
+        "wildcard should match case-insensitive subdomain"
+    );
+}
+
+#[test]
+fn origin_policy_websocket_scheme_normalization() {
+    let policy = build_origin_policy(&["https://example.com".to_owned()]);
+    assert!(
+        policy.is_allowed("wss://example.com"),
+        "wss should normalize to https and match"
+    );
+
+    let policy_http = build_origin_policy(&["http://example.com".to_owned()]);
+    assert!(
+        policy_http.is_allowed("ws://example.com"),
+        "ws should normalize to http and match"
+    );
+}
+
 // -----------------------------------------------------------------------------
 // Test Utilities
 // -----------------------------------------------------------------------------

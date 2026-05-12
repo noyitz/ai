@@ -215,6 +215,16 @@ impl HttpFilter for CsrfFilter {
             return Ok(FilterAction::Continue);
         }
 
+        if ctx
+            .request
+            .headers
+            .get("origin")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|o| o == "null")
+        {
+            return Ok(self.reject_or_log(method, Some("null"), "null origin"));
+        }
+
         let origin = extract_origin(&ctx.request.headers);
 
         if self.fails_sec_fetch_site(&ctx.request.headers) {

@@ -875,6 +875,20 @@ async fn http_wildcard_subdomain_matches() {
     );
 }
 
+#[tokio::test]
+async fn null_origin_rejected_with_distinct_reason() {
+    let f = make_filter(&["https://example.com"], 100, false);
+    let mut req = crate::test_utils::make_request(http::Method::POST, "/submit");
+    req.headers.insert("origin", "null".parse().unwrap());
+    let mut ctx = crate::test_utils::make_filter_context(&req);
+
+    let action = f.on_request(&mut ctx).await.unwrap();
+    assert!(
+        matches!(action, FilterAction::Reject(r) if r.status == 403),
+        "null origin should be rejected"
+    );
+}
+
 // -----------------------------------------------------------------------------
 // Test Utilities
 // -----------------------------------------------------------------------------

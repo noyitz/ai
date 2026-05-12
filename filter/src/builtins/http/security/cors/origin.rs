@@ -5,6 +5,8 @@
 
 use std::collections::HashSet;
 
+use super::super::origin_normalize::normalize_origin;
+
 // -----------------------------------------------------------------------------
 // OriginPolicy
 // -----------------------------------------------------------------------------
@@ -53,13 +55,22 @@ impl OriginPolicy {
     }
 
     /// Check whether `origin` is allowed by this policy.
+    ///
+    /// The incoming origin is normalized per [RFC 6454] before
+    /// comparison so that case differences and default ports
+    /// do not cause false negatives.
+    ///
+    /// [RFC 6454]: https://datatracker.ietf.org/doc/html/rfc6454
     pub(super) fn is_allowed(&self, origin: &str) -> bool {
         match self {
             Self::Any => true,
             Self::List {
                 exact,
                 wildcard_suffixes,
-            } => exact.contains(origin) || match_wildcard_subdomain(origin, wildcard_suffixes),
+            } => {
+                let normalized = normalize_origin(origin);
+                exact.contains(normalized.as_str()) || match_wildcard_subdomain(&normalized, wildcard_suffixes)
+            },
         }
     }
 }
@@ -78,13 +89,14 @@ pub(super) fn build_origin_policy(origins: &[String]) -> OriginPolicy {
     let mut wildcard_suffixes = Vec::new();
 
     for origin in origins {
-        if let Some((scheme, host)) = origin.split_once("://")
+        let normalized = normalize_origin(origin);
+        if let Some((scheme, host)) = normalized.split_once("://")
             && host.starts_with("*.")
         {
             let suffix = host.get(1..).unwrap_or("").to_owned();
             wildcard_suffixes.push((scheme.to_owned(), suffix));
         } else {
-            exact.insert(origin.clone());
+            exact.insert(normalized);
         }
     }
 
