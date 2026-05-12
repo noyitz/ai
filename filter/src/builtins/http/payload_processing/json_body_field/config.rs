@@ -52,8 +52,13 @@ pub(super) struct JsonBodyFieldConfig {
     pub fields: Option<Vec<JsonBodyFieldMapping>>,
 
     /// Maximum request body size in bytes for `StreamBuffer` mode.
-    #[serde(default)]
-    pub max_body_bytes: Option<usize>,
+    #[serde(default = "default_max_body_bytes")]
+    pub max_body_bytes: usize,
+}
+
+/// Default maximum body size (10 MiB).
+fn default_max_body_bytes() -> usize {
+    DEFAULT_MAX_BODY_BYTES
 }
 
 // -----------------------------------------------------------------------------

@@ -34,12 +34,17 @@ const DEFAULT_HEADER_NAME: &str = "X-Request-ID";
 // -----------------------------------------------------------------------------
 
 /// Configuration for the request ID propagation filter.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RequestIdFilterConfig {
-    /// Name of the header to read, generate, and forward. Defaults to `X-Request-ID`.
-    #[serde(default)]
-    header_name: Option<String>,
+    /// Name of the header to read, generate, and forward.
+    #[serde(default = "default_header_name")]
+    header_name: String,
+}
+
+/// Default header name for request ID propagation.
+fn default_header_name() -> String {
+    DEFAULT_HEADER_NAME.to_owned()
 }
 
 // -----------------------------------------------------------------------------
@@ -85,7 +90,7 @@ impl RequestIdFilter {
 
         Ok(Box::new(Self {
             counter: AtomicU64::new(0),
-            header_name: Arc::from(cfg.header_name.as_deref().unwrap_or(DEFAULT_HEADER_NAME)),
+            header_name: Arc::from(cfg.header_name.as_str()),
         }))
     }
 
@@ -320,7 +325,7 @@ mod tests {
         let cfg: RequestIdFilterConfig = parse_filter_config("request_id", &config).unwrap();
         RequestIdFilter {
             counter: AtomicU64::new(0),
-            header_name: Arc::from(cfg.header_name.as_deref().unwrap_or(DEFAULT_HEADER_NAME)),
+            header_name: Arc::from(cfg.header_name.as_str()),
         }
     }
 }

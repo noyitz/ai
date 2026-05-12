@@ -23,7 +23,7 @@ use bytes::Bytes;
 use tracing::trace;
 
 use self::{
-    config::{DEFAULT_MAX_BODY_BYTES, JsonBodyFieldConfig, build_mappings},
+    config::{JsonBodyFieldConfig, build_mappings},
     extract::extract_fields,
 };
 use crate::{
@@ -114,7 +114,7 @@ impl JsonBodyFieldFilter {
     /// [`FilterError`]: crate::FilterError
     pub fn from_config(config: &serde_yaml::Value) -> Result<Box<dyn HttpFilter>, FilterError> {
         let cfg: JsonBodyFieldConfig = parse_filter_config("json_body_field", config)?;
-        let max_body_bytes = cfg.max_body_bytes.unwrap_or(DEFAULT_MAX_BODY_BYTES);
+        let max_body_bytes = cfg.max_body_bytes;
         let mappings = build_mappings(cfg)?;
         Ok(Box::new(Self {
             max_body_bytes,
