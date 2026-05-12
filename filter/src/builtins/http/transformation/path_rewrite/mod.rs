@@ -118,7 +118,8 @@ impl PathRewriteFilter {
     /// [`FilterError`]: crate::FilterError
     pub fn from_config(config: &serde_yaml::Value) -> Result<Box<dyn HttpFilter>, FilterError> {
         let cfg: PathRewriteConfig = parse_filter_config("path_rewrite", config)?;
-        let op = build_op(cfg)?;
+        let operation = cfg.into_operation()?;
+        let op = build_op(operation)?;
         Ok(Box::new(Self { op }))
     }
 }

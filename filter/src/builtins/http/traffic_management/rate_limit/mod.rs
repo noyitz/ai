@@ -6,6 +6,8 @@
 mod config;
 mod limiter;
 
+pub use self::config::RateLimitMode;
+
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,
@@ -124,8 +126,7 @@ impl RateLimitFilter {
     /// # Errors
     ///
     /// Returns an error if any field is missing, `rate` is not
-    /// positive, `burst` is zero, `burst < rate`, or `mode` is
-    /// unrecognised.
+    /// positive, `burst` is zero, or `burst < rate`.
     ///
     /// # Example
     ///
@@ -161,10 +162,9 @@ impl RateLimitFilter {
         }
 
         let burst = f64::from(cfg.burst);
-        let state = match cfg.mode.as_str() {
-            "global" => RateLimitState::Global(TokenBucket::new(burst)),
-            "per_ip" => RateLimitState::PerIp(DashMap::new()),
-            other => return Err(format!("rate_limit: unknown mode '{other}'").into()),
+        let state = match cfg.mode {
+            RateLimitMode::Global => RateLimitState::Global(TokenBucket::new(burst)),
+            RateLimitMode::PerIp => RateLimitState::PerIp(DashMap::new()),
         };
 
         Ok(Box::new(Self {

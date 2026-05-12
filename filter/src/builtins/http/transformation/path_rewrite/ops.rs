@@ -7,7 +7,7 @@ use std::borrow::Cow;
 
 use regex::{Regex, RegexBuilder};
 
-use super::config::PathRewriteConfig;
+use super::config::PathRewriteOperation;
 use crate::FilterError;
 
 // -----------------------------------------------------------------------------
@@ -38,37 +38,21 @@ pub(super) enum PathRewriteOp {
 // -----------------------------------------------------------------------------
 
 /// Build a compiled operation from the deserialized config.
-pub(super) fn build_op(cfg: PathRewriteConfig) -> Result<PathRewriteOp, FilterError> {
-    let count =
-        u8::from(cfg.strip_prefix.is_some()) + u8::from(cfg.add_prefix.is_some()) + u8::from(cfg.replace.is_some());
-
-    if count == 0 {
-        return Err("path_rewrite: exactly one of strip_prefix, add_prefix, or replace must be set".into());
+pub(super) fn build_op(operation: PathRewriteOperation) -> Result<PathRewriteOp, FilterError> {
+    match operation {
+        PathRewriteOperation::StripPrefix(prefix) => Ok(PathRewriteOp::StripPrefix(prefix)),
+        PathRewriteOperation::AddPrefix(prefix) => Ok(PathRewriteOp::AddPrefix(prefix)),
+        PathRewriteOperation::Replace { pattern, replacement } => {
+            let compiled = RegexBuilder::new(&pattern)
+                .size_limit(1 << 20)
+                .build()
+                .map_err(|e| -> FilterError { format!("path_rewrite: invalid regex: {e}").into() })?;
+            Ok(PathRewriteOp::Replace {
+                pattern: compiled,
+                replacement,
+            })
+        },
     }
-    if count > 1 {
-        return Err("path_rewrite: only one of strip_prefix, add_prefix, or replace may be set".into());
-    }
-
-    if let Some(prefix) = cfg.strip_prefix {
-        return Ok(PathRewriteOp::StripPrefix(prefix));
-    }
-
-    if let Some(prefix) = cfg.add_prefix {
-        return Ok(PathRewriteOp::AddPrefix(prefix));
-    }
-
-    if let Some(replace) = cfg.replace {
-        let pattern = RegexBuilder::new(&replace.pattern)
-            .size_limit(1 << 20)
-            .build()
-            .map_err(|e| -> FilterError { format!("path_rewrite: invalid regex: {e}").into() })?;
-        return Ok(PathRewriteOp::Replace {
-            pattern,
-            replacement: replace.replacement,
-        });
-    }
-
-    Err("path_rewrite: no operation configured (expected strip_prefix, add_prefix, or replace)".into())
 }
 
 // -----------------------------------------------------------------------------

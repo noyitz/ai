@@ -67,7 +67,7 @@ fn from_config_rejects_unknown_target() {
     .unwrap();
     let err = GuardrailsFilter::from_config(&yaml).err().expect("should fail");
     assert!(
-        err.to_string().contains("unknown target"),
+        err.to_string().contains("unknown variant"),
         "should reject unknown target, got: {err}"
     );
 }

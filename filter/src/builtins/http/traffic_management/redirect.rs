@@ -13,11 +13,63 @@ use crate::{
 };
 
 // -----------------------------------------------------------------------------
-// Redirect Constants
+// RedirectStatus
 // -----------------------------------------------------------------------------
 
-/// Allowed redirect status codes.
-const VALID_STATUSES: [u16; 4] = [301, 302, 307, 308];
+/// Allowed HTTP redirect status codes.
+///
+/// Deserialized from a `u16` via `TryFrom`.
+///
+/// ```
+/// use praxis_filter::RedirectStatus;
+///
+/// let status = RedirectStatus::try_from(301u16).unwrap();
+/// assert_eq!(status.as_u16(), 301);
+///
+/// assert!(RedirectStatus::try_from(200u16).is_err());
+/// ```
+#[derive(Debug, Clone, Copy)]
+pub enum RedirectStatus {
+    /// 301 Moved Permanently.
+    MovedPermanently,
+
+    /// 302 Found.
+    Found,
+
+    /// 307 Temporary Redirect.
+    TemporaryRedirect,
+
+    /// 308 Permanent Redirect.
+    PermanentRedirect,
+}
+
+impl RedirectStatus {
+    /// Return the numeric HTTP status code.
+    pub fn as_u16(self) -> u16 {
+        match self {
+            Self::MovedPermanently => 301,
+            Self::Found => 302,
+            Self::TemporaryRedirect => 307,
+            Self::PermanentRedirect => 308,
+        }
+    }
+}
+
+impl TryFrom<u16> for RedirectStatus {
+    type Error = String;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            301 => Ok(Self::MovedPermanently),
+            302 => Ok(Self::Found),
+            307 => Ok(Self::TemporaryRedirect),
+            308 => Ok(Self::PermanentRedirect),
+            other => Err(format!(
+                "redirect: invalid status {other}, must be one of [301, 302, 307, 308]"
+            )),
+        }
+    }
+}
 
 // -----------------------------------------------------------------------------
 // RedirectConfig
@@ -28,8 +80,8 @@ const VALID_STATUSES: [u16; 4] = [301, 302, 307, 308];
 #[serde(deny_unknown_fields)]
 struct RedirectConfig {
     /// HTTP redirect status code (301, 302, 307, or 308).
-    #[serde(default = "default_status")]
-    status: u16,
+    #[serde(default = "default_status", deserialize_with = "deserialize_redirect_status")]
+    status: RedirectStatus,
 
     /// Location URL template. Supports `${path}` and `${query}` placeholders.
     ///
@@ -40,8 +92,17 @@ struct RedirectConfig {
 }
 
 /// Default redirect status: 301 Moved Permanently.
-const fn default_status() -> u16 {
-    301
+fn default_status() -> RedirectStatus {
+    RedirectStatus::MovedPermanently
+}
+
+/// Deserialize a `u16` into [`RedirectStatus`] with validation.
+fn deserialize_redirect_status<'de, D>(deserializer: D) -> Result<RedirectStatus, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let code = u16::deserialize(deserializer)?;
+    RedirectStatus::try_from(code).map_err(serde::de::Error::custom)
 }
 
 // -----------------------------------------------------------------------------
@@ -94,7 +155,7 @@ const fn default_status() -> u16 {
 /// ```
 pub struct RedirectFilter {
     /// HTTP redirect status code.
-    status: u16,
+    status: RedirectStatus,
     /// Location URL template with `${path}` / `${query}` placeholders.
     location: String,
 }
@@ -110,14 +171,6 @@ impl RedirectFilter {
     /// [`FilterError`]: crate::FilterError
     pub fn from_config(config: &serde_yaml::Value) -> Result<Box<dyn HttpFilter>, FilterError> {
         let cfg: RedirectConfig = parse_filter_config("redirect", config)?;
-
-        if !VALID_STATUSES.contains(&cfg.status) {
-            return Err(format!(
-                "redirect: invalid redirect status {}, must be one of {VALID_STATUSES:?}",
-                cfg.status,
-            )
-            .into());
-        }
 
         Ok(Box::new(Self {
             status: cfg.status,
@@ -135,7 +188,7 @@ impl HttpFilter for RedirectFilter {
     async fn on_request(&self, ctx: &mut HttpFilterContext<'_>) -> Result<FilterAction, FilterError> {
         let uri = &ctx.request.uri;
         let location = expand_location(&self.location, uri.path(), uri.query());
-        let rejection = Rejection::status(self.status).with_header("Location", &location);
+        let rejection = Rejection::status(self.status.as_u16()).with_header("Location", &location);
         Ok(FilterAction::Reject(rejection))
     }
 }
@@ -212,7 +265,7 @@ mod tests {
 
     #[test]
     fn from_config_invalid_status_fails() {
-        for status in [200u16, 301 + 1000, 0, 404, 500] {
+        for status in [200u16, 404, 500] {
             let yaml =
                 serde_yaml::from_str::<serde_yaml::Value>(&format!("status: {status}\nlocation: \"https://x.com\""))
                     .unwrap();

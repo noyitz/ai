@@ -414,6 +414,6 @@ fn regex_no_match_returns_borrowed() {
 fn make_filter(yaml: &str) -> PathRewriteFilter {
     let config: serde_yaml::Value = serde_yaml::from_str(yaml).unwrap();
     let cfg: PathRewriteConfig = serde_yaml::from_value(config).unwrap();
-    let op = build_op(cfg).unwrap();
+    let op = build_op(cfg.into_operation().unwrap()).unwrap();
     PathRewriteFilter { op }
 }

@@ -50,6 +50,31 @@ pub enum GuardrailsAction {
 }
 
 // -----------------------------------------------------------------------------
+// RuleTargetKind
+// -----------------------------------------------------------------------------
+
+/// What a guardrail rule inspects at the config level.
+///
+/// ```
+/// use praxis_filter::RuleTargetKind;
+///
+/// let target: RuleTargetKind = serde_yaml::from_str("header").unwrap();
+/// assert!(matches!(target, RuleTargetKind::Header));
+///
+/// let target: RuleTargetKind = serde_yaml::from_str("body").unwrap();
+/// assert!(matches!(target, RuleTargetKind::Body));
+/// ```
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuleTargetKind {
+    /// Inspect a named request header.
+    Header,
+
+    /// Inspect the request body.
+    Body,
+}
+
+// -----------------------------------------------------------------------------
 // RuleConfig
 // -----------------------------------------------------------------------------
 
@@ -57,11 +82,13 @@ pub enum GuardrailsAction {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct RuleConfig {
-    /// Header name (required when `target` is `"header"`).
+    /// Header name (required when `target` is [`Header`]).
+    ///
+    /// [`Header`]: RuleTargetKind::Header
     pub name: Option<String>,
 
-    /// What to inspect: `"header"` or `"body"`.
-    pub target: String,
+    /// What to inspect: header or body.
+    pub target: RuleTargetKind,
 
     /// Literal substring match (case-sensitive).
     pub contains: Option<String>,

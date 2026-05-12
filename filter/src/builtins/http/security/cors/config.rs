@@ -6,6 +6,32 @@
 use serde::Deserialize;
 
 // -----------------------------------------------------------------------------
+// DisallowedOriginMode
+// -----------------------------------------------------------------------------
+
+/// Behavior when a CORS preflight origin is not in the allow list.
+///
+/// ```
+/// use praxis_filter::DisallowedOriginMode;
+///
+/// let mode: DisallowedOriginMode = serde_yaml::from_str("omit").unwrap();
+/// assert_eq!(mode, DisallowedOriginMode::Omit);
+///
+/// let mode: DisallowedOriginMode = serde_yaml::from_str("reject").unwrap();
+/// assert_eq!(mode, DisallowedOriginMode::Reject);
+/// ```
+#[derive(Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DisallowedOriginMode {
+    /// Omit CORS headers and return 204 (default).
+    #[default]
+    Omit,
+
+    /// Reject the preflight with 403.
+    Reject,
+}
+
+// -----------------------------------------------------------------------------
 // CorsConfig
 // -----------------------------------------------------------------------------
 
@@ -41,9 +67,9 @@ pub(super) struct CorsConfig {
     #[serde(default)]
     pub allow_private_network: bool,
 
-    /// Behavior when origin is not allowed: `"omit"` or `"reject"`.
-    #[serde(default = "default_disallowed_mode")]
-    pub disallowed_origin_mode: String,
+    /// Behavior when origin is not in the allow list.
+    #[serde(default)]
+    pub disallowed_origin_mode: DisallowedOriginMode,
 
     /// Whether to allow `Origin: null`.
     #[serde(default)]
@@ -53,11 +79,6 @@ pub(super) struct CorsConfig {
 /// Default max-age: 24 hours.
 fn default_max_age() -> u32 {
     86400
-}
-
-/// Default disallowed origin mode.
-fn default_disallowed_mode() -> String {
-    "omit".to_owned()
 }
 
 // -----------------------------------------------------------------------------
@@ -71,13 +92,6 @@ pub(super) fn validate_config(cfg: &CorsConfig) -> Result<(), crate::FilterError
     }
     if cfg.max_age == 0 {
         return Err("cors: max_age must be greater than 0".into());
-    }
-    if cfg.disallowed_origin_mode != "omit" && cfg.disallowed_origin_mode != "reject" {
-        return Err(format!(
-            "cors: disallowed_origin_mode must be \"omit\" or \"reject\", got \"{}\"",
-            cfg.disallowed_origin_mode
-        )
-        .into());
     }
     validate_credentials(cfg)?;
     validate_wildcard_origins(cfg)

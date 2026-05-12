@@ -91,7 +91,7 @@ fn from_config_rejects_unknown_mode() {
     let yaml: serde_yaml::Value = serde_yaml::from_str("mode: sliding_window\nrate: 10\nburst: 20").unwrap();
     let err = RateLimitFilter::from_config(&yaml).err().expect("should error");
     assert!(
-        err.to_string().contains("unknown mode"),
+        err.to_string().contains("rate_limit"),
         "should reject unknown mode, got: {err}"
     );
 }

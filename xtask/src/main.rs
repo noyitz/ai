@@ -5,8 +5,10 @@
 
 #![deny(unsafe_code)]
 #![allow(
+    clippy::exit,
     clippy::print_stdout,
     clippy::print_stderr,
+    clippy::unused_result_ok,
     clippy::unwrap_used,
     clippy::expect_used,
     reason = "development tooling"

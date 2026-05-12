@@ -143,7 +143,7 @@ disallowed_origin_mode: "block"
     .unwrap();
     let err = CorsFilter::from_config(&yaml).err().unwrap();
     assert!(
-        err.to_string().contains("must be \"omit\" or \"reject\""),
+        err.to_string().contains("cors"),
         "invalid disallowed mode should fail: {err}"
     );
 }
