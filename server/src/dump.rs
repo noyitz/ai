@@ -411,10 +411,7 @@ filter_chains:
         assert_eq!(dump.resolved_listeners[0].filters[0].name.as_deref(), Some("routing"));
     }
 
-    #[test]
-    fn credential_injection_values_redacted_in_dump() {
-        let config = Config::from_yaml(
-            r#"
+    const CREDENTIAL_INJECTION_YAML: &str = r#"
 listeners:
   - name: web
     address: "127.0.0.1:8080"
@@ -437,20 +434,18 @@ filter_chains:
           - name: backend
             endpoints:
               - "127.0.0.1:9090"
-"#,
-        )
-        .unwrap();
+"#;
 
+    #[test]
+    fn credential_injection_values_redacted_in_dump() {
+        let config = Config::from_yaml(CREDENTIAL_INJECTION_YAML).unwrap();
         let dump = build_dump(&config, "test.yaml").unwrap();
         let yaml = serde_yaml::to_string(&dump).unwrap();
         assert!(
             !yaml.contains("super-secret-key"),
             "credential value must be redacted in dump: {yaml}"
         );
-        assert!(
-            yaml.contains("[REDACTED]"),
-            "redaction marker must appear: {yaml}"
-        );
+        assert!(yaml.contains("[REDACTED]"), "redaction marker must appear: {yaml}");
         assert!(
             yaml.contains("header_prefix"),
             "non-sensitive fields must remain: {yaml}"
