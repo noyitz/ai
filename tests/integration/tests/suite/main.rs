@@ -56,6 +56,8 @@ mod mcp;
 mod path_rewrite;
 mod payload_processing;
 mod per_listener_pipeline;
+#[cfg(feature = "ai-inference")]
+mod prompt_enrich;
 mod rate_limit;
 mod retry;
 mod routing;
