@@ -16,6 +16,10 @@ API integrations built on
 - [Anthropic Messages](anthropic-messages.md)
 - [Anthropic Messages replay test plan](anthropic-messages-replay-test-plan.md)
 
+## Deployment
+
+- [Deploying the external metering filter](deploying-external-metering.md)
+
 ## Reference
 
 - [Example configs](../examples/README.md)
