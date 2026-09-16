@@ -122,6 +122,10 @@ Isolation: shadow selectors are `app=praxis-shadow`; shadow metering writes
    content_normalize on vLLM, model_catalog envelopes, model_access 403s).
 4. Yos + Noy daily-drive `ai-gateway-*-shadow` for a day.
 5. Compare shadow vs prod `usage_events` rows for identical requests.
+6. Welcome-page client matrix: `scripts/prove-welcome-clients.sh`
+   (TARGET=shadow|prod, CLIENTS=claude codex opencode). **DONE 2026-09-16:**
+   4/4 pass against shadow, all success rows metered non-zero; found two
+   welcome-page snippet bugs (status doc finding 5).
 
 ## 5. Canary (the only step that touches prod traffic)
 

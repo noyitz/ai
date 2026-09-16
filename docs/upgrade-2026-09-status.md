@@ -19,7 +19,7 @@ and needs an explicit go.
 
 | Layer | State |
 |---|---|
-| Branch `upgrade/2026-09` (worktree `praxis-ai-upgrade`, tip `a7d1fe92`, **local only, not pushed**) | 17 commits: 5 filter ports + generated docs + deploy stack + `provider: auto` cherry-pick + live-config alignment + deploy fixes + runbook/status docs |
+| Branch `upgrade/2026-09` (worktree `praxis-ai-upgrade`, tip `372bd4a6` + welcome-proof commit, **local only, not pushed**) | 19 commits: 5 filter ports + generated docs + deploy stack + `provider: auto` cherry-pick + live-config alignment + deploy fixes + runbook/status docs + welcome-page client proof script |
 | Tests | filters suite 1406 pass (2 known-failing upstream `credential_inject` watcher tests on macOS, fail on pristine upstream too) |
 | Lint | all upstream gates green except `lint-filter-docs` flags 4 upstream docs from local rustdoc drift (proven environmental — branch changes none of their inputs) |
 | Config | `praxis.yaml` in-branch mirrors the **live** cluster config + 3 required migrations: `max_scratch_bytes: 1048576`, `allow_private_endpoint: true` ×4, `provider: auto` (Noy's, cherry-picked) |
@@ -39,6 +39,14 @@ and needs an explicit go.
 - Streaming chat-completions through the Responses bridge: byte-near-identical
   between shadow (new binary) and prod (old binary) — behavioral parity, see
   finding 2.
+- **Welcome-page client matrix (all 4 configs, headless, `shadow` target):**
+  `scripts/prove-welcome-clients.sh` renders the welcome page's own snippets
+  against the shadow hosts and runs them: Claude Code (env block + gateway
+  discovery + hosted Qwen), Codex `--profile qwen`, Codex `--profile
+  pricetag` (gpt-5.3-codex via the openai route), OpenCode `pricetag-hosted`.
+  4/4 replied correctly and **every success metered non-zero tokens** in
+  `aigateway_shadow.usage_events` (prompt 10.5k–17.4k / completion 7–91).
+  It caught two real welcome-page bugs — finding 5.
 
 ## Findings so far
 
@@ -72,24 +80,49 @@ and needs an explicit go.
    least announce + re-diff before adopt.
 4. **CNPG db provisioning** is declarative now (`Database` CR `shadow-db`);
    teardown keeps the db by default. No action needed, noted for ops.
+5. **Welcome page ships two broken client snippets** (caught by the matrix;
+   page bug, not an upgrade issue). (a) The Codex hosted-Qwen provider is
+   written `base_url = "{{UNIFIED_URL}}"` (welcome.html:422) — Codex appends
+   `/responses` to the base, and the gateway serves `/v1/responses`, so the
+   snippet 404s as written; the page's own "two traps" callout describes
+   exactly this failure. `{{OPENAI_URL}}` already ends in `/v1`, which is why
+   the pricetag profile works and the qwen one doesn't. Fix: add `/v1`
+   (branch `fix/welcome-codex-qwen-base-url` in metering-service). (b) The
+   snippets use the legacy `[profiles.x]` table, which current Codex (0.152)
+   rejects alongside `--profile` — profiles now live in per-profile
+   `<name>.config.toml` files. Also cosmetic: Claude Code's background
+   `claude-haiku-4-5@20251001` calls 404 (not in the catalog) — pre-existing
+   on prod too, metered as 404 rows with 0 tokens.
 
-## Open questions (mostly Noy)
+## Q1–Q4 — asked, answered, and what each answer still leaves open
 
-1. **Prod image provenance — the big one.** `sha256:ae83fb…` has no
-   `git-<sha>` imagestream tag and no change-cause annotation (deployed via
-   an uncommitted deploy.sh path). Before canary/adopt we must know exactly
-   which source tree it is. **The adopted branch must be a superset of what
-   prod actually runs.** Specifically: is today's image built with
-   `fix/token-count-provider-auto` (Yos assumes yes — the live cm requires
-   it), and any of: `feat/overlay-apikey-strategy`,
-   `feat/token-count-prompt-cache`, fork `fix/token-count-responses-api`?
-   If any yes → we merge/cherry-pick them into `upgrade/2026-09` before
-   canary, not after.
-2. The litellm-octo-models WIP that will patch the live cm again — lands
-   before or after adopt? Whichever, the branch manifest must absorb it.
-3. Bridge usage-chunk semantics (finding 2) — keep or fix upstream?
-4. Daily-drive pairing: Yos + Noy a day on `ai-gateway-*-shadow` hosts —
-   when works?
+Answers relayed by Yos (from Noy) 2026-09-16 evening.
+
+1. **"Confirm your code includes the codex fix Noy pushed yesterday."**
+   Confirmed: Noy's 9/15 push is `8b73b4db` (`token_count provider: auto`),
+   cherry-picked as `5df19c4f` — all 8 of his tests pass on the branch, and
+   the shadow row proves it counts live. **Still open:** the provenance of
+   the prod image itself (`sha256:ae83fb…`) for the three *other* branches
+   (`feat/overlay-apikey-strategy`, `feat/token-count-prompt-cache`, fork
+   `fix/token-count-responses-api`) — need an explicit "none of those are
+   in ae83fb" before canary.
+2. **"Keep hosted models configured for Inferact/Qwen3.8-Flash-Next-NVFP4."**
+   Kept: the branch's `praxis.yaml` mirrors the live catalog entry verbatim
+   (~line 246), and the shadow matrix just showed all four hosted-Qwen
+   clients working through it. Constraint recorded for the litellm-octo WIP:
+   whatever patches the live cm next must preserve this entry.
+3. **"Make sure we track all tokens spent."** Matrix result: all four
+   welcome-page client paths (messages, responses×2, hosted) meter non-zero
+   end-to-end. The only zero-count path is the chat-completions→Responses
+   *bridge* (finding 2, pre-existing on prod, same under Noy's original
+   `provider: auto` code) — fixing it is a semantics decision for Noy, not
+   an upgrade blocker. Error rows (404 etc.) correctly meter 0 tokens with
+   their status code.
+4. **"Does the shadow day mean a different anthropic URL?"** Yes — identical
+   client configs, hosts get `-shadow` appended
+   (`oc -n ai-gateway-dogfood get routes | grep shadow`), or just run
+   `scripts/prove-welcome-clients.sh` for the scripted version. No client
+   changes beyond the hostname.
 
 ## Risks & mitigations
 
