@@ -16,7 +16,8 @@ canary section. Rollback after every step is named explicitly.
 ## 1. Local gates (done — evidence in git log)
 
 - [x] 5 filters ported, per-feature commits, each compiles
-- [x] `cargo test -p praxis-ai-filters` — 1397 pass; 2 known-failing upstream
+- [x] `cargo test -p praxis-ai-filters` — 1406 pass (incl. 8 ported
+      provider-auto tests); 2 known-failing upstream
       `routing::credential_inject` watcher tests confirmed failing on pristine
       `origin/main` (macOS env)
 - [x] `cargo check --workspace --all-targets`
@@ -42,19 +43,41 @@ canary section. Rollback after every step is named explicitly.
 
 ## 2. Config migration
 
-Extract live config and validate against the new binary:
+The LIVE cluster `praxis-config` cm — not the committed manifest — is the
+source of truth for prod behavior, and it had drifted from both the
+committed dogfood manifest and the branch's worktree. Extract + validate
+against the new binary:
 
 ```bash
-python3 -c "import yaml; cm=list(yaml.safe_load_all(open('deploy/openshift/praxis.yaml')))[0]; open('/tmp/praxis-cfg.yaml','w').write(cm['data']['praxis.yaml'])"
+oc -n ai-gateway-dogfood get cm praxis-config -o jsonpath='{.data.praxis\.yaml}' > /tmp/praxis-cfg.yaml
 cargo run -p praxis-ai-proxy -- --config /tmp/praxis-cfg.yaml --validate
 ```
 
-Result (2026-09-16): **clean on first try, no migration needed** — the live
-337-line config validates against the new binary as-is. If a future refresh
-does drift, fix `deploy/openshift/praxis.yaml` (the source of truth) and
-re-validate. Note: the old hardcoded 1 MiB SSE scratch bump became the
-configurable `max_scratch_bytes` upstream (default 64 KiB) — decide during
-shadow proving whether streaming responses need it raised in config.
+Result (2026-09-16): the live config **failed at first** with
+`token_count: unknown variant 'auto'`. The cm had been hot-reload-patched
+(praxis serves the old config on reload failure — no crash) with Noy's
+`provider: auto` per-path dialect selection, which exists only on his
+branch `noyitz/fix/token-count-provider-auto` and in the running untagged
+prod image. Two changes landed on this branch:
+
+- `5df19c4f` — cherry-pick of Noy's `8b73b4db`, resolved against upstream
+  0.5.5's `token_count` (kept upstream's `max_scratch_bytes` machinery);
+  all 8 of his provider-auto tests pass.
+- `e760daf7` — `deploy/openshift/praxis.yaml` rebuilt from the
+  live-extracted config (literal-block style preserved, byte-exact
+  roundtrip asserted) plus one required migration:
+  `max_scratch_bytes: 1048576` under `token_count`. Upstream replaced the
+  old binary's hardcoded 1 MiB SSE scratch with a configurable 64 KiB
+  default; Responses-API SSE events exceed 64 KiB, so the default would
+  silently zero Qwen-via-Codex token metering.
+
+`--validate` now exits 0. **Open coordination item:** the running prod
+image (`sha256:ae83fb76…`) has no git provenance (no `git-<sha>`
+imagestream tag, no change-cause annotation), and Noy has three further
+open branches (`feat/overlay-apikey-strategy`,
+`feat/token-count-prompt-cache`, fork `fix/token-count-responses-api`).
+Before canary/adopt, confirm none of those are in the running image — the
+adopted branch must be a superset of what prod actually runs.
 
 ## 3. Shadow stack
 
