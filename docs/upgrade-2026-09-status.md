@@ -1,0 +1,132 @@
+# Praxis core upgrade 2026-09 — status, open questions, risks
+
+Audience: Yos + Noy. As of 2026-09-16 ~18:00 UTC.
+Companion docs: `upgrade-2026-09-runbook.md` (ops), `upgrade-2026-09-port-audit.md` (what was ported and why).
+
+## TL;DR
+
+The dogfood fork's real delta onto upstream core 0.5.5 is ported and green
+locally. The isolated shadow stack in `ai-gateway-dogfood` is **live, running
+the new binary, and has already metered a real streamed request end-to-end**.
+Prod has not been touched — verified byte-for-byte at every step. Shadow
+proving caught one **adopt-day landmine** (SSRF guard → metering would
+silently stop); it is resolved in the branch. Biggest remaining risk is not
+code — it's that **nobody can prove what source today's prod image was
+built from** (Noy question #1 below). Canary (traffic split) has not started
+and needs an explicit go.
+
+## Where we stand
+
+| Layer | State |
+|---|---|
+| Branch `upgrade/2026-09` (worktree `praxis-ai-upgrade`, tip `a7d1fe92`, **local only, not pushed**) | 17 commits: 5 filter ports + generated docs + deploy stack + `provider: auto` cherry-pick + live-config alignment + deploy fixes + runbook/status docs |
+| Tests | filters suite 1406 pass (2 known-failing upstream `credential_inject` watcher tests on macOS, fail on pristine upstream too) |
+| Lint | all upstream gates green except `lint-filter-docs` flags 4 upstream docs from local rustdoc drift (proven environmental — branch changes none of their inputs) |
+| Config | `praxis.yaml` in-branch mirrors the **live** cluster config + 3 required migrations: `max_scratch_bytes: 1048576`, `allow_private_endpoint: true` ×4, `provider: auto` (Noy's, cherry-picked) |
+| Shadow stack | `aigateway_shadow` db (CNPG `Database` CR), isolated metering-service-shadow, `praxis-ai-shadow` BC/IS, 2× praxis-shadow pods on `git-c674d829` (`sha256:25876b43…`), 4 `*-shadow` routes |
+| Prod | untouched, 4 consecutive verified checks: 2/2 pods @ `ae83fb…` (same pods, 0 restarts), `praxis-config` rv unchanged (`7826150`), all 4 routes `alternateBackends: <none>` |
+
+### Proven with real traffic (shadow, zero prod impact)
+
+- Auth per listener dialect (401 unauth, 200 keyed) — `api_key_auth` →
+  maas-api validate; group (`octo-eng`) visible through `model_access`
+  overrides and carried all the way into the usage row.
+- Model discovery (`model_catalog`) + per-group allow/deny.
+- `/v1/responses` streaming (the Codex-on-Qwen flow): SSE completes with
+  usage (`total_tokens: 86`), and `aigateway_shadow.usage_events` got the
+  row: 62 prompt / 24 completion / 86 total, provider `qwen-flash`, 200.
+  This exercises `token_count provider: auto` + scratch + `external_metering`.
+- Streaming chat-completions through the Responses bridge: byte-near-identical
+  between shadow (new binary) and prod (old binary) — behavioral parity, see
+  finding 2.
+
+## Findings so far
+
+1. **SSRF guard (RESOLVED in branch, must ship at adopt).** Core 0.5.5
+   added a shared address policy for filter sub-requests
+   (`apis/src/callout_target.rs`): private/ClusterIP targets are refused
+   unless the filter sets an opt-in. First shadow request streamed fine but
+   metered **zero** — `external_metering` couldn't reach
+   `http://metering-service:8080`. Fix = `allow_private_endpoint: true` on
+   all four `external_metering` entries (commit `3fa269e7`), re-tested →
+   row above. Old prod binary has no guard, so nothing to do today; but
+   **adopt without these lines = metering silently stops**. `api_key_auth`'s
+   maas-api call is not covered by the guard (verified working unchanged).
+   Resolvable is an understatement — it's two config lines, already in.
+2. **Chat→Responses bridge emits no client-side usage chunk (PRE-EXISTING,
+   not an upgrade regression).** A `stream:true` chat-completions request
+   for Qwen on the anthropic router returns SSE without a usage chunk on
+   **both** prod and shadow binaries (2931 vs 2942 bytes, same shape). Noy:
+   is that vLLM/emerg-side behavior you want to keep, or should the bridge
+   surface `response.completed` usage to chat clients? Either way the
+   upgrade doesn't change it; Codex itself uses `/v1/responses` which is
+   fully metered.
+3. **Config drift almost bricked the shadow boot (mitigated).** The live cm
+   had been hot-reload-patched with `provider: auto` (Noy's unmerged
+   branch + today's untagged image); the new binary refused it. We
+   cherry-picked the feature and re-anchored the branch manifest to
+   live-extracted truth. **Ongoing hazard:** the live cm is a mutable
+   hand-edited object that prod hot-reloads. Any further manual patch
+   (litellm migration?) silently moves prod off the branch's mirror again.
+   Suggested discipline: cm changes only via the branch manifest, or at
+   least announce + re-diff before adopt.
+4. **CNPG db provisioning** is declarative now (`Database` CR `shadow-db`);
+   teardown keeps the db by default. No action needed, noted for ops.
+
+## Open questions (mostly Noy)
+
+1. **Prod image provenance — the big one.** `sha256:ae83fb…` has no
+   `git-<sha>` imagestream tag and no change-cause annotation (deployed via
+   an uncommitted deploy.sh path). Before canary/adopt we must know exactly
+   which source tree it is. **The adopted branch must be a superset of what
+   prod actually runs.** Specifically: is today's image built with
+   `fix/token-count-provider-auto` (Yos assumes yes — the live cm requires
+   it), and any of: `feat/overlay-apikey-strategy`,
+   `feat/token-count-prompt-cache`, fork `fix/token-count-responses-api`?
+   If any yes → we merge/cherry-pick them into `upgrade/2026-09` before
+   canary, not after.
+2. The litellm-octo-models WIP that will patch the live cm again — lands
+   before or after adopt? Whichever, the branch manifest must absorb it.
+3. Bridge usage-chunk semantics (finding 2) — keep or fix upstream?
+4. Daily-drive pairing: Yos + Noy a day on `ai-gateway-*-shadow` hosts —
+   when works?
+
+## Risks & mitigations
+
+| # | Risk | Status / mitigation |
+|---|---|---|
+| 1 | Adopt stops metering silently (SSRF guard) | **Mitigated** — opt-in lines in branch cm + runbook adopt checklist; shadow row is the regression test |
+| 2 | Prod image contains unmerged Noy work → adopted branch regresses features | **OPEN — top risk.** Mitigation: answer Q1, then superset-check + re-run the §4 proof suite on the merged tip before any traffic shifts |
+| 3 | Live cm hand-patched again mid-flight | Mitigation: re-extract + `--validate` diff vs branch mirror immediately before canary start; discipline per finding 3 |
+| 4 | Canary degrades real users | Route-weight split only (10→50→100), watch error rate/latency/shadow rows between steps; **rollback = `alternateBackends: []`, seconds, zero pod churn**; long-lived streams stay on their backend (fine) |
+| 5 | Shadow stack interferes with prod | Structurally isolated: `app=praxis-shadow`/`metering-service-shadow` selectors (verified shadow pods can never join the prod service), auto-assigned route hosts (cannot steal prod hostnames), separate db (`aigateway_shadow`), shadow BC has ImageChange triggers stripped (cannot watch the prod IS). Prod IS `praxis-ai:latest` is never rebuilt from this branch |
+| 6 | Responses SSE usage counting regresses on big events | `max_scratch_bytes: 1048576` explicit in config (old binary's hardcoded 1 MiB; upstream default 64 KiB would silently zero it). Covered by the shadow row + daily drive |
+| 7 | Scale-down-to-0 of prod praxis (repeat of yesterday) | Standing hard rule: nobody scales/restarts prod praxis; shadow work never touches it (4 verifications this session) |
+| 8 | Qwen emerg upstream itself changes under us (litellm migration) | Not an upgrade risk per se — but A/B baselines (prod vs shadow rows for same requests) should be taken close together |
+| 9 | Two failing `credential_inject` watcher tests | Upstream, pre-existing on macOS, fail on pristine `origin/main`; CI (Linux) is the arbiter |
+| 10 | Doc-lint drift (4 upstream filter docs) | Environmental (local rustdoc version); do NOT commit the regenerated churn; CI stays green |
+
+## How to proceed (decision points)
+
+1. **Noy answers Q1–Q4** → if superset check finds gaps, merge them and
+   re-run the proof suite (one `shadow.sh release --local`, ~40 min,
+   zero prod impact).
+2. **Finish §4 proving**: llm-katan replay (zero spend), Yos+Noy day of
+   daily-drive on `*-shadow` routes, compare shadow vs prod usage-event
+   shapes for the same requests.
+3. **GO/NOGO for canary** (explicit call by Yos): weights 10→50→100 per
+   route, rollback is a one-line patch back to `alternateBackends: []`.
+4. **Adopt**: prod release pointing at the branch (now with
+   `allow_private_endpoint` + `max_scratch_bytes` in the prod cm), old pods
+   kept unexposed a week (same insurance as `postgresql-0`), then
+   `shadow.sh teardown`, dashboards re-pointed.
+
+## Ops quick-ref
+
+```bash
+cd ~/code/redhat/praxis-ai-upgrade
+./deploy/openshift/shadow.sh status | up | release --local | teardown
+oc -n ai-gateway-dogfood get routes | grep shadow        # the 4 hosts
+# shadow metering rows (from a probe pod, creds via secret envFrom):
+#   select * from usage_events order by id desc limit 5;   -- aigateway_shadow
+```
