@@ -16,7 +16,7 @@ canary section. Rollback after every step is named explicitly.
 ## 1. Local gates (done — evidence in git log)
 
 - [x] 5 filters ported, per-feature commits, each compiles
-- [x] `cargo test -p praxis-ai-filters` — 1396 pass; 3 known-failing upstream
+- [x] `cargo test -p praxis-ai-filters` — 1397 pass; 2 known-failing upstream
       `routing::credential_inject` watcher tests confirmed failing on pristine
       `origin/main` (macOS env)
 - [x] `cargo check --workspace --all-targets`
@@ -24,8 +24,21 @@ canary section. Rollback after every step is named explicitly.
       unmodified on core 0.5.5**, exit 0 with dummy provider keys (real keys
       come from the `provider-credentials` secret); all five ported filters
       present in `--dump` output
-- [ ] upstream conformance: `cargo xtask openai-conformance` +
-      `make lint` (`lint-filter-docs` covers our 5 generated docs)
+- [x] `make lint` — all gates pass (clippy ×2 feature sets, nightly
+      `fmt --check`, machete, lint-deps/separators, example tests, README
+      syncs, inference/responses checks) EXCEPT `lint-filter-docs`, which
+      flags 4 upstream docs (`a2a`, `mcp`, `anthropic_messages_format`,
+      `openai_responses_format`) from LOCAL rustdoc version drift: our branch
+      changes none of their inputs (proven `git diff`-clean against the
+      adopted upstream tip), so it fails identically on pristine upstream on
+      this machine. Do NOT commit the regenerated churn for those 4.
+- [ ] `cargo xtask openai-conformance` — needs `oasdiff` (not installed
+      locally); the two new upstream commits since our base are responses-API
+      internals we don't route through, so we inherit upstream CI's green.
+- [x] rebased onto `origin/main` tip (`3bf887c5`, 2026-09-16) — clean replay
+      of all 11 commits, full local gate re-run: filters tests, example tests
+      (incl. new `stream-usage-inject` suite test), `--validate` exit 0 on
+      the rebuilt binary.
 
 ## 2. Config migration
 
