@@ -71,6 +71,20 @@ prod image. Two changes landed on this branch:
   default; Responses-API SSE events exceed 64 KiB, so the default would
   silently zero Qwen-via-Codex token metering.
 
+- SSRF-guard migration (caught by shadow proving, 2026-09-16): core 0.5.5
+  gates filter sub-requests to non-public IPs behind an opt-in
+  (`apis/src/callout_target.rs`). Real streaming request through
+  `ai-gateway-unified-shadow` streamed fine (Responses SSE
+  `response.completed` with usage) but wrote **zero** rows —
+  `external_metering` logs `target resolved to blocked non-public
+  address …; set the filter's private-target opt-in to true`. Fix:
+  `allow_private_endpoint: true` on all four `external_metering` entries
+  (commit `3fa269e7`); A/B against prod proved the OLD binary reports
+  fine (no guard yet), so prod needed no urgent change — but ADOPTION
+  does. `api_key_auth`'s maas-api validate call is not guarded (verified
+  working unchanged). Post-fix the shadow wrote the expected row:
+  prompt 62 / completion 24 / total 86, username+group carried end-to-end.
+
 `--validate` now exits 0. **Open coordination item:** the running prod
 image (`sha256:ae83fb76…`) has no git provenance (no `git-<sha>`
 imagestream tag, no change-cause annotation), and Noy has three further
@@ -97,6 +111,13 @@ Isolation: shadow selectors are `app=praxis-shadow`; shadow metering writes
 2. `SMOKE_API_KEY=sk-... curl https://<unified-shadow-host>/v1/models` + real
    chat request incl. streaming (stream_usage_inject must produce non-zero
    token counts in `metering-service-shadow`'s `usage_events`).
+   **DONE 2026-09-16:** 401s/200s correct per listener dialect
+   (`x-api-key` on anthropic/unified, `authorization` on openai — the live
+   config's `token_header` choice, not a bug); `/v1/responses` stream on
+   unified → non-zero row in `aigateway_shadow.usage_events` (see §2 SSRF
+   item). Note: chat-completions→Responses *bridge* path (qwen on the
+   anthropic router) emits no client usage chunk on EITHER binary —
+   prod-parity, flagged to Noy as pre-existing, not an upgrade regression.
 3. Before/after repros for each ported fix (stream usage injection,
    content_normalize on vLLM, model_catalog envelopes, model_access 403s).
 4. Yos + Noy daily-drive `ai-gateway-*-shadow` for a day.
