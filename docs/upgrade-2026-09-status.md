@@ -39,14 +39,18 @@ and needs an explicit go.
 - Streaming chat-completions through the Responses bridge: byte-near-identical
   between shadow (new binary) and prod (old binary) — behavioral parity, see
   finding 2.
-- **Welcome-page client matrix (all 4 configs, headless, `shadow` target):**
-  `scripts/prove-welcome-clients.sh` renders the welcome page's own snippets
-  against the shadow hosts and runs them: Claude Code (env block + gateway
-  discovery + hosted Qwen), Codex `--profile qwen`, Codex `--profile
-  pricetag` (gpt-5.3-codex via the openai route), OpenCode `pricetag-hosted`.
-  4/4 replied correctly and **every success metered non-zero tokens** in
-  `aigateway_shadow.usage_events` (prompt 10.5k–17.4k / completion 7–91).
-  It caught two real welcome-page bugs — finding 5.
+- **Welcome-page client matrix (all 6 client/dialect combos, headless,
+  `shadow` target):** `scripts/prove-welcome-clients.sh` renders the welcome
+  page's own snippets against the shadow hosts and runs them: Claude Code
+  (env block + gateway discovery + hosted Qwen), Codex `--profile qwen`,
+  Codex `--profile pricetag` (gpt-5.3-codex via the openai route), OpenCode
+  `pricetag-hosted`, Hermes qwen + gpt dialects (hermes needs the FIXED
+  recipe — the page's §06 has never worked, see finding 5c–e). 6/6 replied
+  correctly and **every success metered non-zero tokens** in
+  `aigateway_shadow.usage_events` (prompt 10.5k–17.4k / completion 6–127;
+  rows 10–55). Rerun: `TARGET=shadow ./scripts/prove-welcome-clients.sh`
+  (idempotent; `CLIENTS=` narrows to a subset). It caught five real
+  welcome-page bugs — finding 5.
 
 ## Findings so far
 
@@ -80,19 +84,38 @@ and needs an explicit go.
    least announce + re-diff before adopt.
 4. **CNPG db provisioning** is declarative now (`Database` CR `shadow-db`);
    teardown keeps the db by default. No action needed, noted for ops.
-5. **Welcome page ships two broken client snippets** (caught by the matrix;
-   page bug, not an upgrade issue). (a) The Codex hosted-Qwen provider is
+5. **Welcome page ships five broken client snippets** (caught by the matrix;
+   page bugs, not upgrade issues). CODEX: (a) The hosted-Qwen provider is
    written `base_url = "{{UNIFIED_URL}}"` (welcome.html:422) — Codex appends
    `/responses` to the base, and the gateway serves `/v1/responses`, so the
    snippet 404s as written; the page's own "two traps" callout describes
    exactly this failure. `{{OPENAI_URL}}` already ends in `/v1`, which is why
    the pricetag profile works and the qwen one doesn't. Fix: add `/v1`
-   (branch `fix/welcome-codex-qwen-base-url` in metering-service). (b) The
-   snippets use the legacy `[profiles.x]` table, which current Codex (0.152)
-   rejects alongside `--profile` — profiles now live in per-profile
-   `<name>.config.toml` files. Also cosmetic: Claude Code's background
-   `claude-haiku-4-5@20251001` calls 404 (not in the catalog) — pre-existing
-   on prod too, metered as 404 rows with 0 tokens.
+   (branch `fix/welcome-codex-qwen-base-url` in metering-service, rebased
+   onto upstream `c4d2874`). (b) The snippets use the legacy `[profiles.x]`
+   table, which current Codex (0.152) rejects alongside `--profile` —
+   profiles now live in per-profile `<name>.config.toml` files. HERMES
+   (upstream §06, `722a56f`+`c4d2874`; never worked against PriceTag as
+   written, proved 2026-09-16, shadow rows 23–55): (c) **the dangerous one**
+   — the `anthropic` provider ignores `model.base_url` in the yaml (its
+   registry reads `ANTHROPIC_BASE_URL` from env only), so the page's qwen
+   config silently falls through to hermes' fallback providers and answers
+   with ZERO gateway calls: the user thinks they're onboarded, nothing is
+   metered — exactly the unmetered-usage hole Q3 cares about. Fix: put
+   `ANTHROPIC_BASE_URL=<unified>/v1` (+ `OPENAI_BASE_URL=<openai url>`,
+   both keys) in `~/.hermes/.env`; hermes loads `.env` into its credential
+   pool and the metered row proves it. (d) The `custom` provider ignores
+   env keys entirely and sends a literal `no-key` placeholder bearer, so the
+   GPT lineup 401s "invalid API key" with a perfectly good key in `.env` —
+   `model.api_key` must be set in config.yaml. (e) The GPT default
+   `gpt-5.3-codex` is responses-only on this gateway while hermes' custom
+   provider speaks chat/completions → 404 "Use the v1/responses endpoint";
+   `gpt-5.4` works (verified metered), `gpt-5.6-luna` 400s on hermes'
+   tools+reasoning_effort combination. Also cosmetic: Claude Code's
+   background `claude-haiku-4-5@20251001` calls 404 (not in the catalog) —
+   pre-existing on prod too, metered as 404 rows with 0 tokens. Hermes'
+   auxiliary/probe calls land as extra `model='unknown'` 0-token rows —
+   metering records them, dashboards filter.
 
 ## Q1–Q4 — asked, answered, and what each answer still leaves open
 
