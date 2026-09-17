@@ -94,10 +94,18 @@ prod image. Two changes landed on this branch:
   filter (unified chain, after `content_normalize`) rewrites both the
   chat-completions top-level `reasoning_effort` and the Responses
   `reasoning.effort` through a configurable map (defaults `high→xhigh`,
-  `minimal→low`). Scoped to router-selected clusters — `clusters` is
-  mandatory and non-empty at config parse — so `gpt-*` requests, where
-  `high` is legitimate, are never rewritten. **Adopt: the prod cm must
-  carry this filter entry alongside the two migrations above.**
+  `minimal→low`). Scoped to an explicit `models` list — mandatory and
+  non-empty at config parse — matched exactly against the body `model`
+  field, so `gpt-*` requests, where `high` is legitimate, are never
+  rewritten. Model gating, not cluster gating: the unified chain's
+  `model_to_header` puts the pipeline in pre-read mode, where body
+  hooks run *before any filter's header phase*, so the router's
+  cluster does not exist yet when a body rewrite must be committed
+  (proved in finding 7 of the status doc; first cluster-gated cut
+  silently rewrote nothing). New qwen models on the qwen-flash route
+  must be added to this list — forgetting fails loudly (the backend
+  400s). **Adopt: the prod cm must carry this filter entry alongside
+  the two migrations above.**
 
 `--validate` now exits 0. **Open coordination item:** the running prod
 image (`sha256:ae83fb76…`) has no git provenance (no `git-<sha>`

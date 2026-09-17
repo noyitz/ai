@@ -125,10 +125,33 @@ and needs an explicit go.
    on the emerg host. Shipping `reasoning_effort_map` (new filter,
    unified chain): rewrites chat `reasoning_effort` and Responses
    `reasoning.effort` via a configurable map (default `high→xhigh`,
-   `minimal→low`), gated on the router-selected cluster with `clusters`
-   mandatory — gpt-* models keep `high` (they legitimately accept it;
-   gpt-5.6-luna verified). 17 unit tests; runbook §2 lists it as the
-   fourth adopt-day config entry.
+   `minimal→low`), gated on an explicit `models` list (exact match on
+   the body `model` field, mandatory, non-empty) — gpt-* models keep
+   `high` (they legitimately accept it; gpt-5.6-luna verified). 21 unit
+   tests; runbook §2 lists it as the fourth adopt-day config entry.
+   **First cut gated on the router's cluster instead — it passed unit
+   tests yet rewrote nothing in any real chain; see finding 7.**
+
+7. **`ctx.cluster` is invisible to body hooks in pre-read chains
+   (framework behavior, upstream-core, verified 2026-09-17).** When a
+   chain contains a read-only body filter (`model_to_header` in the
+   unified chain), the protocol pre-reads the whole request body during
+   the request phase and runs **every** filter's `on_request_body` in
+   that pass — before any filter's `on_request`, hence before the
+   router selects a cluster. The bytes returned from that pass are what
+   gets forwarded; the later body phase replays the stored buffer
+   without re-invoking hooks (body-done indices persist). Consequences:
+   (a) a body-mutating filter can only gate on information inside the
+   body itself — the cluster is `None` at mutation time, always, in
+   such chains; (b) unit tests that hand-build a context with
+   `cluster: Some(...)` validate filter logic but cannot catch this —
+   the first cluster-gated `reasoning_effort_map` was green on 17 tests
+   and dead on the wire (caught only by the shadow verification
+   battery). Local repro pattern that catches it cheaply: minimal chain
+   `model_to_header → router → filter → load_balancer→echo-upstream`,
+   assert on the bytes the echo logs. Worth an upstream doc PR —
+   the trait docs for `HttpFilterContext::cluster` don't mention the
+   pre-read caveat.
 
 ## Q1–Q4 — asked, answered, and what each answer still leaves open
 
