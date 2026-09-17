@@ -151,21 +151,43 @@ Isolation: shadow selectors are `app=praxis-shadow`; shadow metering writes
 
 ## 5. Canary (the only step that touches prod traffic)
 
-OpenShift route weighted backends, per route, 10 → 50 → 100:
+OpenShift route weighted backends. Weights are RELATIVE per route and the
+primary does NOT shrink automatically — set both sides explicitly.
+Yos's plan: straight 50/50 (all four routes), Yos + Noy testing live.
 
 ```bash
-oc -n ai-gateway-dogfood patch route ai-gateway-unified --type merge -p '
-spec:
-  alternateBackends:
-  - kind: Service
-    name: praxis-shadow
-    weight: 10'
+# GO (all four routes, one command each):
+for r in ai-gateway-unified ai-gateway-anthropic ai-gateway-openai ai-gateway-benchmark; do
+  oc -n ai-gateway-dogfood set route-backends $r praxis=50 praxis-shadow=50
+done
+
+# verify split:
+oc -n ai-gateway-dogfood get route-backends ai-gateway-unified
 ```
 
-Prod `praxis` keeps weight 90 → 50 → 0 automatically (primary stays). Watch
-error rate + latency + shadow `usage_events` between steps.
+Pre-flip gates (all must hold, same day): battery green on shadow,
+shadow cm rendered with `SHADOW_METERING_MODE=prod` applied (rows →
+prod metering with `source: praxis-ai-shadow*`), live `praxis-config`
+re-diffed against the branch mirror (hand-patch hazard), prod pods
+2/2 @ `ae83fb…`.
 
-**Rollback (any time, seconds, no pod churn):** set `alternateBackends: []`.
+Watch error rate + latency + prod `usage_events` rows tagged
+`praxis-ai-shadow` between/after steps. Responses from the new build
+carry header `x-gateway-build: new` on ALL routes — Yos/Noy keep their
+unchanged URLs and attribute per request.
+
+**Rollback (any time, seconds, no pod churn), per route:**
+
+```bash
+for r in ai-gateway-unified ai-gateway-anthropic ai-gateway-openai ai-gateway-benchmark; do
+  oc -n ai-gateway-dogfood set route-backends $r praxis=100 praxis-shadow=0
+done
+# clean removal afterwards: patch alternateBackends: []
+```
+
+Caveat: rows already written with `source: praxis-ai-shadow` are REAL
+spend and stay in prod (correct bookkeeping, not pollution); dashboards
+can filter by source during the canary.
 
 ## 6. Adopt
 
