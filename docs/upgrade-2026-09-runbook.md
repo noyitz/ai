@@ -161,9 +161,29 @@ for r in ai-gateway-unified ai-gateway-anthropic ai-gateway-openai ai-gateway-be
   oc -n ai-gateway-dogfood set route-backends $r praxis=50 praxis-shadow=50
 done
 
-# verify split:
-oc -n ai-gateway-dogfood get route-backends ai-gateway-unified
+# verify spec (route-backends is NOT a gettable resource — jsonpath):
+oc -n ai-gateway-dogfood get route ai-gateway-unified \
+  -o jsonpath='{.spec.to.name}={.spec.to.weight} ALT={.spec.alternateBackends}{"\n"}'
+
+# verify empirically — MUST be a FULL-CHAIN request (tiny chat completion);
+# /v1/models short-circuits in model_catalog BEFORE the marker filter and
+# 401s short-circuit in auth — both show "old" even from the new build:
+curl -sD - -o /dev/null https://<prod-unified-host>/v1/chat/completions \
+  -H "x-api-key: $KEY" -H content-type:application/json \
+  -d '{"model":"Inferact/Qwen3.8-Flash-Next-NVFP4","messages":[{"role":"user","content":"hi"}],"max_tokens":4}' \
+  | grep -i x-gateway-build     # present => this response came from the new build
+
+# router truth (if split looks wrong): both router pods' runtime state —
+# servers all state=2 weight=256 means the router IS splitting:
+oc -n openshift-ingress exec deploy/router-default -- sh -c \
+  "echo 'show servers state' | socat /var/lib/haproxy/run/haproxy.sock -" \
+  | grep 'ai-gateway-unified '
 ```
+
+**FLIPPED 2026-09-17 03:5x** — all four routes `praxis=50 praxis-shadow=50`
+(spec verified per route), empirical split 6 new / 6 old on 12 real chat
+probes to the prod unified host, shadow pods 0 errors, prod metering
+ingesting real users' rows during the window.
 
 Pre-flip gates (all must hold, same day): battery green on shadow,
 shadow cm rendered with `SHADOW_METERING_MODE=prod` applied (rows →
