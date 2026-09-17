@@ -22,7 +22,7 @@ and needs an explicit go.
 | Branch `upgrade/2026-09` (worktree `praxis-ai-upgrade`, tip `372bd4a6` + welcome-proof commit, **local only, not pushed**) | 19 commits: 5 filter ports + generated docs + deploy stack + `provider: auto` cherry-pick + live-config alignment + deploy fixes + runbook/status docs + welcome-page client proof script |
 | Tests | filters suite 1406 pass (2 known-failing upstream `credential_inject` watcher tests on macOS, fail on pristine upstream too) |
 | Lint | all upstream gates green except `lint-filter-docs` flags 4 upstream docs from local rustdoc drift (proven environmental — branch changes none of their inputs) |
-| Config | `praxis.yaml` in-branch mirrors the **live** cluster config + 3 required migrations: `max_scratch_bytes: 1048576`, `allow_private_endpoint: true` ×4, `provider: auto` (Noy's, cherry-picked) |
+| Config | `praxis.yaml` in-branch mirrors the **live** cluster config + 4 required changes: `max_scratch_bytes: 1048576`, `allow_private_endpoint: true` ×4, `provider: auto` (Noy's, cherry-picked), `reasoning_effort_map` filter entry (new, qwen-scoped — fixes the `high`→400 Benny hit; access behavior unchanged: denylists match live) |
 | Shadow stack | `aigateway_shadow` db (CNPG `Database` CR), isolated metering-service-shadow, `praxis-ai-shadow` BC/IS, 2× praxis-shadow pods on `git-c674d829` (`sha256:25876b43…`), 4 `*-shadow` routes |
 | Prod | untouched, 4 consecutive verified checks: 2/2 pods @ `ae83fb…` (same pods, 0 restarts), `praxis-config` rv unchanged (`7826150`), all 4 routes `alternateBackends: <none>` |
 
@@ -116,6 +116,19 @@ and needs an explicit go.
    pre-existing on prod too, metered as 404 rows with 0 tokens. Hermes'
    auxiliary/probe calls land as extra `model='unknown'` 0-token rows —
    metering records them, dashboards filter.
+
+6. **Qwen `reasoning_effort` 400 — fixed with a new qwen-scoped filter.**
+   Qwen3.8's vLLM chat template only accepts `xhigh/medium/low`; the
+   `high` that Claude Code/Codex-style clients send (Responses bridge
+   copies `reasoning.effort` verbatim) 400s — reproduced on shadow both
+   dialects (rows 56–57, metered 0-token), matching what bennyturns saw
+   on the emerg host. Shipping `reasoning_effort_map` (new filter,
+   unified chain): rewrites chat `reasoning_effort` and Responses
+   `reasoning.effort` via a configurable map (default `high→xhigh`,
+   `minimal→low`), gated on the router-selected cluster with `clusters`
+   mandatory — gpt-* models keep `high` (they legitimately accept it;
+   gpt-5.6-luna verified). 17 unit tests; runbook §2 lists it as the
+   fourth adopt-day config entry.
 
 ## Q1–Q4 — asked, answered, and what each answer still leaves open
 

@@ -85,6 +85,20 @@ prod image. Two changes landed on this branch:
   working unchanged). Post-fix the shadow wrote the expected row:
   prompt 62 / completion 24 / total 86, username+group carried end-to-end.
 
+- Reasoning-effort compatibility (new filter, 2026-09-16, requested after
+  shadow proving): Qwen's vLLM chat template rejects `reasoning_effort`
+  outside `xhigh`/`medium`/`low`; the `high` default that OpenAI-style
+  clients send (and the Responses bridge's verbatim copy of
+  `reasoning.effort`) 400s with `BadRequestError` (shadow rows 56–57,
+  same seen upstream-side on the emerg host). New `reasoning_effort_map`
+  filter (unified chain, after `content_normalize`) rewrites both the
+  chat-completions top-level `reasoning_effort` and the Responses
+  `reasoning.effort` through a configurable map (defaults `high→xhigh`,
+  `minimal→low`). Scoped to router-selected clusters — `clusters` is
+  mandatory and non-empty at config parse — so `gpt-*` requests, where
+  `high` is legitimate, are never rewritten. **Adopt: the prod cm must
+  carry this filter entry alongside the two migrations above.**
+
 `--validate` now exits 0. **Open coordination item:** the running prod
 image (`sha256:ae83fb76…`) has no git provenance (no `git-<sha>`
 imagestream tag, no change-cause annotation), and Noy has three further
