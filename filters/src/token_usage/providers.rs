@@ -9,10 +9,11 @@ use super::TokenUsage;
 
 /// Cache write counts are not reported by every provider.
 ///
-/// `OpenAI` Chat Completions and Google expose how much of the prompt was *read*
-/// from their cache but not how much was written to it, so those parsers leave
-/// the cache write count absent rather than claiming a zero the provider never
-/// reported.
+/// Google exposes how much of the prompt was *read* from its cache but not how
+/// much was written to it, so that parser leaves the cache write count absent
+/// rather than claiming a zero the provider never reported. (`OpenAI` reports
+/// cache writes as `cache_write_tokens` in both Chat Completions
+/// `prompt_tokens_details` and Responses API `input_tokens_details`.)
 const NO_CACHE_WRITE: Option<u64> = None;
 
 // -----------------------------------------------------------------------------
@@ -63,6 +64,11 @@ struct ChatCompletionsUsage {
 struct OpenAiPromptTokensDetails {
     /// Tokens read from cache, already counted in `prompt_tokens`.
     cached_tokens: Option<u64>,
+
+    /// Tokens written to cache during this request, already counted in
+    /// `prompt_tokens`. Reported by Chat Completions prompt caching once a
+    /// cache entry is created; absent when nothing was written.
+    cache_write_tokens: Option<u64>,
 }
 
 /// `OpenAI` completion token breakdown.
@@ -96,12 +102,16 @@ pub(super) fn parse_openai(body: &[u8]) -> Option<TokenUsage> {
 
 /// Converts a Chat Completions usage object.
 fn chat_completions_usage(usage: ChatCompletionsUsage) -> TokenUsage {
-    let cache_read = usage.prompt_tokens_details.and_then(|details| details.cached_tokens);
+    // `prompt_tokens` already includes cached reads and writes, so both counts
+    // are recorded as breakdowns of the prompt rather than added to it.
+    let (cache_read, cache_write) = usage.prompt_tokens_details.map_or((None, None), |details| {
+        (details.cached_tokens, details.cache_write_tokens)
+    });
     let reasoning = usage
         .completion_tokens_details
         .and_then(|details| details.reasoning_tokens);
     TokenUsage::new(usage.prompt_tokens, usage.completion_tokens, usage.total_tokens)
-        .with_cache(cache_read, NO_CACHE_WRITE)
+        .with_cache(cache_read, cache_write)
         .with_reasoning(reasoning)
 }
 
@@ -709,7 +719,25 @@ mod tests {
         assert_eq!(
             usage.cache_write_tokens(),
             None,
-            "OpenAI has no cache write field, so the count is absent rather than zero"
+            "an absent cache_write_tokens stays absent rather than zero"
+        );
+    }
+
+    #[test]
+    fn openai_chat_completions_reports_cache_writes() {
+        let json = br#"{"usage": {
+            "prompt_tokens": 1000,
+            "completion_tokens": 50,
+            "prompt_tokens_details": {"cached_tokens": 900, "cache_write_tokens": 100}
+        }}"#;
+        let usage = parse_openai(json).unwrap();
+
+        assert_eq!(usage.input_tokens(), 1000, "cache counts stay out of the prompt total");
+        assert_eq!(usage.cache_read_tokens(), Some(900), "cached_tokens is the cache read");
+        assert_eq!(
+            usage.cache_write_tokens(),
+            Some(100),
+            "cache_write_tokens is the cache write breakdown"
         );
     }
 
@@ -739,7 +767,11 @@ mod tests {
             None,
             "no prompt_tokens_details means no cache information"
         );
-        assert_eq!(usage.cache_write_tokens(), None, "OpenAI never reports cache writes");
+        assert_eq!(
+            usage.cache_write_tokens(),
+            None,
+            "no prompt_tokens_details means no cache write information either"
+        );
     }
 
     #[test]
