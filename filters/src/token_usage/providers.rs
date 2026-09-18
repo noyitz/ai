@@ -7,15 +7,6 @@ use serde::Deserialize;
 
 use super::TokenUsage;
 
-/// Cache write counts are not reported by every provider.
-///
-/// Google exposes how much of the prompt was *read* from its cache but not how
-/// much was written to it, so that parser leaves the cache write count absent
-/// rather than claiming a zero the provider never reported. (`OpenAI` reports
-/// cache writes as `cache_write_tokens` in both Chat Completions
-/// `prompt_tokens_details` and Responses API `input_tokens_details`.)
-const NO_CACHE_WRITE: Option<u64> = None;
-
 // -----------------------------------------------------------------------------
 // OpenAI / Azure
 // -----------------------------------------------------------------------------
@@ -268,7 +259,10 @@ struct GoogleUsageMetadata {
 /// count is recorded as a breakdown of the input rather than added to it.
 /// Thinking tokens are reported separately from candidate output. When the
 /// provider omits `totalTokenCount`, the fallback total includes thoughts
-/// so billing and quota consumers do not undercount.
+/// so billing and quota consumers do not undercount. Google exposes how
+/// much of the prompt was *read* from its cache but never how much was
+/// written to it, so the cache write count stays `None` rather than
+/// claiming a zero the provider never reported.
 pub(super) fn parse_google(body: &[u8]) -> Option<TokenUsage> {
     let response: GoogleResponse = serde_json::from_slice(body).ok()?;
     let usage = response.usage_metadata?;
@@ -280,7 +274,7 @@ pub(super) fn parse_google(body: &[u8]) -> Option<TokenUsage> {
         .unwrap_or_else(|| usage.prompt_token_count.saturating_add(output).saturating_add(thoughts));
     Some(
         TokenUsage::new(usage.prompt_token_count, output, Some(total))
-            .with_cache(cache_read, NO_CACHE_WRITE)
+            .with_cache(cache_read, None)
             .with_reasoning(usage.thoughts_token_count),
     )
 }
