@@ -38,7 +38,7 @@ mod tests;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use praxis_ai_apis::{json_body::replace_json_body, openai::normalize_path};
+use praxis_ai_apis::{json_body::replace_json_body, operation::normalize_path};
 use praxis_filter::{
     BodyAccess, BodyMode, FilterAction, FilterError, HttpFilter, HttpFilterContext, body::DEFAULT_JSON_BODY_MAX_BYTES,
     builtins::http::payload_processing::config_validation::validate_max_body_bytes, parse_filter_config,
