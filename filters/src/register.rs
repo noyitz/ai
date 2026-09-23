@@ -18,8 +18,8 @@ use crate::{
     A2aFilter, AiGuardrailsFilter, ApiKeyAuthFilter, ContentNormalizeFilter, CredentialInjectFilter,
     ExternalMeteringFilter, IdentityHeaderGuardFilter, IntelligentRouteFilter, LlmisvcModelProviderResolverFilter,
     McpFilter, ModelAccessFilter, ModelCatalogFilter, ModelToHeaderFilter, PromptEnrichFilter, ProviderRouteFilter,
-    ReasoningEffortMapFilter, Sigv4SignFilter, StreamUsageInjectFilter, TimeToFirstTokenFilter, TokenCountFilter,
-    TokenUsageHeadersFilter,
+    ReasoningEffortMapFilter, RejectUpgradeFilter, Sigv4SignFilter, StreamUsageInjectFilter, TimeToFirstTokenFilter,
+    TokenCountFilter, TokenUsageHeadersFilter,
 };
 
 /// Register all in-tree AI HTTP filters into `registry`.
@@ -48,6 +48,7 @@ pub fn register_ai_filters(registry: &mut FilterRegistry, subrequest_client: Opt
     #[cfg(feature = "gcp-adc-filter")]
     register_gcp_filters(registry);
     register_general_ai_filters(registry);
+    register_reject_upgrade(registry);
     register_ai_guardrails(registry, subrequest_client);
     register_external_metering(registry, subrequest_client);
     register_anthropic_filters(registry, subrequest_client);
@@ -166,6 +167,15 @@ fn register_general_ai_filters(registry: &mut FilterRegistry) {
         http "time_to_first_token" => TimeToFirstTokenFilter::from_config
     );
     register_token_filters(registry);
+}
+
+/// Register the reject-upgrade filter, which refuses connection upgrades
+/// (e.g. `WebSocket`) so upgraded tunnels cannot bypass body-level metering.
+fn register_reject_upgrade(registry: &mut FilterRegistry) {
+    praxis_filter::register_filters!(
+        @register registry,
+        http "reject_upgrade" => RejectUpgradeFilter::from_config
+    );
 }
 
 /// Register token counting/usage/rate-limiting filters.
@@ -533,6 +543,7 @@ mod tests {
             "credential_inject",
             "anthropic_validate",
             "anthropic_web_search",
+            "reject_upgrade",
             "request_id",
             "aws_sigv4_sign",
             "openai_chat_completions_to_azureai_chat_completions",
