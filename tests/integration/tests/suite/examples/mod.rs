@@ -56,6 +56,7 @@ mod openai_stream_events;
 mod openai_tool_parse;
 mod prompt_enrichment;
 mod provider_route;
+mod reject_upgrade;
 mod rehydrate;
 mod responses_routing;
 mod responses_to_chat_completions;
