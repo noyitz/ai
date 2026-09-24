@@ -47,6 +47,7 @@ pub fn register_ai_filters(registry: &mut FilterRegistry, subrequest_client: Opt
     register_azure_translation_filters(registry);
     #[cfg(feature = "gcp-adc-filter")]
     register_gcp_filters(registry);
+    register_vertex_filters(registry);
     register_general_ai_filters(registry);
     register_reject_upgrade(registry);
     register_ai_guardrails(registry, subrequest_client);
@@ -110,6 +111,14 @@ fn register_azure_translation_filters(registry: &mut FilterRegistry) {
 #[cfg(feature = "gcp-adc-filter")]
 fn register_gcp_filters(registry: &mut FilterRegistry) {
     register_routing_security_filter(registry, "gcp_adc", GcpAdcFilter::from_config);
+}
+
+/// Register the Vertex AI dialect translation filter.
+fn register_vertex_filters(registry: &mut FilterRegistry) {
+    praxis_filter::register_filters!(
+        @register registry,
+        http "vertex" => praxis_ai_apis::vertex::VertexFilter::from_config
+    );
 }
 
 /// Register general-purpose AI filters.
