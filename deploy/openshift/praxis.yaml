@@ -116,6 +116,13 @@ data:
             cache_ttl_seconds: 300
             timeout_seconds: 5
 
+          - filter: reject_upgrade
+            # Refuse connection upgrades (e.g. WebSocket): Pingora tunnels a 101
+            # opaquely, bypassing external_metering/token_count. Clients fall back
+            # to plain HTTP where every request is metered. (metering accounting guard)
+            protocols:
+              - websocket
+
           - filter: model_access
             mode: denylist
             models:
@@ -258,6 +265,8 @@ data:
                 display_name: "Claude Haiku 4.5"
               - id: claude-fable-5
                 display_name: "Claude Fable 5 (octo-eng only)"
+              - id: rits/zai-org/glm-5-3
+                display_name: "GLM 5.3 (hosted via curvebender)"
 
           - filter: model_access
             mode: denylist
@@ -285,6 +294,12 @@ data:
                 headers:
                   x-model: "Inferact/Qwen3.8-Flash-Next-NVFP4"
                 cluster: qwen-flash
+              # Curvebender GLM-5.3 (LiteLLM, Anthropic-dialect translation
+              # verified live 2026-09-21; see praxis-runbooks).
+              - path_prefix: "/"
+                headers:
+                  x-model: "rits/zai-org/glm-5-3"
+                cluster: cb-glm
               - path_prefix: "/"
                 cluster: anthropic
 
@@ -333,6 +348,15 @@ data:
                 header: x-api-key
                 env_var: ANTHROPIC_API_KEY
                 strip_client_credential: true
+              - name: cb-glm
+                header: Authorization
+                header_prefix: "Bearer "
+                # Shim: running image's clusters-schema lacks `file:` (added on
+                # the 0.5.5+ branch code); uses env-from-secret instead, which
+                # means key rotation needs a pod roll until the next image
+                # release lands file: support — then flip to file:/etc/cb-litellm/key.
+                env_var: CB_LITELLM_API_KEY
+                strip_client_credential: true
 
           - filter: headers
             request_set:
@@ -350,6 +374,9 @@ data:
               - name: anthropic
                 header: Host
                 value: "api.anthropic.com"
+              - name: cb-glm
+                header: Host
+                value: "litellm.cb.ete.res.ibm.com"
 
           - filter: load_balancer
             clusters:
@@ -365,6 +392,13 @@ data:
                 idle_timeout_ms: 45000
                 endpoints:
                   - "qwen38-flash-next-d57178e0-2037-479e-9a33-217f81dd6f5e.apps.emerg.pcbk.p1.openshiftapps.com:443"
+              - name: cb-glm
+                tls:
+                  sni: "litellm.cb.ete.res.ibm.com"
+                # Same stale-conn guard as the other upstreams.
+                idle_timeout_ms: 45000
+                endpoints:
+                  - "litellm.cb.ete.res.ibm.com:443"
 ---
 # NOTE: provider-credentials Secret is created by deploy.sh from
 # env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY). Do NOT include it
