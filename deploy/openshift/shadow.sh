@@ -101,16 +101,18 @@ for d in docs(praxis_f):
                 # and dashboards stay truthful while route weights split
                 # traffic. Rows are attributed via the source tag below.
                 n = cfg.count('source: "praxis-ai')
-                assert n == 4, f"expected 4 source tags, found {n}"
+                assert n == 5, f"expected 5 source tags, found {n}"
                 cfg = cfg.replace('source: "praxis-ai-benchmark"',
                                   'source: "praxis-ai-shadow-benchmark"')
+                cfg = cfg.replace('source: "praxis-ai-vertex"',
+                                  'source: "praxis-ai-shadow-vertex"')
                 cfg = cfg.replace('source: "praxis-ai"', 'source: "praxis-ai-shadow"')
             # build marker: a response answering x-gateway-build: new came
             # from this build — Yos/Noy test through their UNCHANGED URLs
             # and attribute per request. Best-effort (the metering source
             # tag is the authoritative attribution).
             lb_lines = [l for l in cfg.splitlines() if l.strip() == "- filter: load_balancer"]
-            assert len(lb_lines) == 4, f"expected 4 load_balancer entries, found {len(lb_lines)}"
+            assert len(lb_lines) == 5, f"expected 5 load_balancer entries, found {len(lb_lines)}"
             assert len({len(l) - len(l.lstrip()) for l in lb_lines}) == 1, "mixed chain indents — extend render"
             ind = " " * (len(lb_lines[0]) - len(lb_lines[0].lstrip()))
             marker = (
